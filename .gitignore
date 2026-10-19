@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.tsbuildinfo
+rust-fit/target/
+.cache/
+.openai/
+.sites-runtime/
+.env
+.env.*
+!.env.example
+*.log
+/closet-studio-*.json

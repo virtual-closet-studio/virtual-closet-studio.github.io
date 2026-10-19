@@ -1,0 +1,22 @@
+{
+  "name": "virtual-closet",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "build:wasm": "powershell -ExecutionPolicy Bypass -File scripts/build-wasm.ps1",
+    "test": "node scripts/test-materials.mjs && node scripts/test-backup.mjs"
+  },
+  "dependencies": {
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "@gltf-transform/cli": "^4.5.0",
+    "@types/three": "^0.180.0",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.7"
+  }
+}

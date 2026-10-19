@@ -1,0 +1,42 @@
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import ts from 'typescript';
+await mkdir('.cache/material-tests',{recursive:true});
+for (const name of ['types','storage']) {
+  const source=(await readFile(`src/${name}.ts`,'utf8')).replace("from './types'", "from './types.mjs'");
+  await writeFile(`.cache/material-tests/${name}.mjs`,ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
+}
+const {initialState,migrateMaterials}=await import('../.cache/material-tests/storage.mjs');
+const {STARTER_GARMENTS,CATEGORY_LABELS}=await import('../.cache/material-tests/types.mjs');
+assert.equal(initialState().garments.length,12);
+assert.equal(CATEGORY_LABELS.top,'インナー');
+const old={garments:structuredClone(STARTER_GARMENTS),selected:{top:'sample-2',bottom:'sample-6'},body:{width:1.1,height:.9},outfits:[{id:'old',name:'既存',garmentIds:{top:'sample-2',bottom:'sample-6'}}]};
+const preserved=JSON.stringify({selected:old.selected,body:old.body,outfits:old.outfits});
+migrateMaterials(old);migrateMaterials(old);
+assert.equal(old.garments.length,12);
+assert.equal(JSON.stringify({selected:old.selected,body:old.body,outfits:old.outfits}),preserved);
+old.garments=old.garments.filter(g=>g.id!=='material-boots');
+migrateMaterials(old);assert.equal(old.garments.length,11,'Deleted additions must stay deleted');
+console.log('PASS: initial catalogue, legacy migration, idempotency, saved selections/outfits and deletion preservation');
+const legacy=initialState();delete legacy.categoryVersion;
+legacy.garments.filter(g=>g.template==='jacket').forEach(g=>g.category='outer');
+legacy.garments.push({...legacy.garments.find(g=>g.template==='jacket'),id:'custom-hoodie',category:'outer'});
+legacy.selected={top:'sample-1',outer:'custom-hoodie',bottom:'sample-6'};
+legacy.outfits=[{id:'hoodie-look',name:'旧パーカー',garmentIds:{top:'sample-2',outer:'sample-4',shoes:'material-boots'},body:{width:1,height:1},createdAt:1}];
+migrateMaterials(legacy);const migrated=JSON.stringify(legacy);migrateMaterials(legacy);
+assert.equal(JSON.stringify(legacy),migrated,'category migration is idempotent');
+assert.ok(legacy.garments.filter(g=>g.template==='jacket').every(g=>g.category==='top'));
+assert.equal(legacy.selected.top,'custom-hoodie');assert.equal(legacy.selected.outer,undefined);
+assert.equal(legacy.outfits[0].garmentIds.top,'sample-4');assert.equal(legacy.outfits[0].garmentIds.outer,undefined);
+assert.equal(legacy.outfits[0].garmentIds.shoes,'material-boots');
+assert.ok(legacy.garments.some(g=>g.id==='sample-1'),'other inners remain registered');
+console.log('PASS: built-in/custom hoodie category migration, selected garments and saved outfits');
+
+const previous=initialState(); previous.materialVersion=1; previous.garments=previous.garments.filter(g=>g.id!=='material-cargo' && g.id!=='material-boots');
+migrateMaterials(previous);migrateMaterials(previous);
+assert.equal(previous.garments.filter(g=>g.template==='cargo').length,1);
+assert.equal(previous.garments.find(g=>g.template==='cargo').category,'bottom');
+assert.ok(!previous.garments.some(g=>g.id==='material-boots'));
+previous.garments=previous.garments.filter(g=>g.id!=='material-cargo');migrateMaterials(previous);
+assert.ok(!previous.garments.some(g=>g.id==='material-cargo'));
+console.log('PASS: cargo version migration preserves deletions and avoids duplicates');
