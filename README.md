@@ -1,5 +1,9 @@
 # バーチャルクローゼット
 
+- 公開サイト: https://aizaaaaap.github.io/virtual-closet/
+- コード管理: https://github.com/AIzaaaaap/virtual-closet
+- 自動公開の実行状況: https://github.com/AIzaaaaap/virtual-closet/actions
+
 端末内で服を管理し、3Dアバターでコーデを試せるWebアプリです。人体、Tシャツ、パーカー、スウェットパンツにユーザー提供の3Dデータを使用します。同じ服の形状に色や柄、アップロードした画像を適用します。旧版で登録したスカートだけは従来の簡易形状で表示します。
 
 ## 3Dモデル
