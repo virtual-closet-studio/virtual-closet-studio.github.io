@@ -1,3 +1,3 @@
 import { defineConfig } from 'vite';
 
-export default defineConfig({ base: '/virtual-closet/' });
+export default defineConfig({ base: '/' });

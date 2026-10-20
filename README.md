@@ -1,8 +1,8 @@
 # バーチャルクローゼット
 
-- 公開サイト: https://aizaaaaap.github.io/virtual-closet/
-- コード管理: https://github.com/AIzaaaaap/virtual-closet
-- 自動公開の実行状況: https://github.com/AIzaaaaap/virtual-closet/actions
+- 公開サイト: https://virtual-closet-studio.github.io/
+- コード管理: https://github.com/virtual-closet-studio/virtual-closet-studio.github.io
+- 自動公開の実行状況: https://github.com/virtual-closet-studio/virtual-closet-studio.github.io/actions
 
 端末内で服を管理し、3Dアバターでコーデを試せるWebアプリです。人体、Tシャツ、パーカー、スウェットパンツにユーザー提供の3Dデータを使用します。同じ服の形状に色や柄、アップロードした画像を適用します。旧版で登録したスカートだけは従来の簡易形状で表示します。
 
@@ -46,22 +46,22 @@ npm run dev
 
 ## GitHub Pagesでの無料公開
 
-公開リポジトリ `virtual-closet` を使います。GitHub Free、標準のGitHub-hosted runner、GitHub Pagesの範囲で動き、有料API・サーバー・独自ドメインは不要です。利用制限はGitHub Pagesの公式ドキュメントに従います。
+無料Organization `virtual-closet-studio` の公開リポジトリ `virtual-closet-studio.github.io` を使います。GitHub Free、標準のGitHub-hosted runner、GitHub Pagesの範囲で動き、有料API・サーバー・独自ドメインは不要です。利用制限はGitHub Pagesの公式ドキュメントに従います。
 
 1. このフォルダーの内容を公開リポジトリのルートへ登録します。
 2. GitHubの Settings → Pages → Build and deployment → Source を **GitHub Actions** に設定します。
 3. `main` にpushすると `.github/workflows/deploy.yml` がテスト・ビルド・公開を実行します。Actions → Publish GitHub Pages → Run workflow から手動実行もできます。
-4. 公開先は `https://<GitHubユーザー名>.github.io/virtual-closet/` です。実際のURLと成功状態はActionsまたはPages設定で確認します。
+4. 公開先は `https://virtual-closet-studio.github.io/` です。実際のURLと成功状態はActionsまたはPages設定で確認します。
 
 更新はこのフォルダーでコードを編集して `npm test` と `npm run build` を実行し、変更をcommitして `main` にpushします。素材追加時は `public/models/` へ配置します。失敗したビルドは公開されず、直前の成功版が残ります。取り消す場合は対象commitをrevertしてpushします。
 
-リポジトリ名を変更する場合は `vite.config.js` の `base` も変更してください。ローカル確認は `npm run dev`、本番成果物の確認は `npm run build` → `npm run preview` を使い、表示されたURLの `/virtual-closet/` を開きます。
+以後の更新先はOrganizationの新リポジトリに統一します。従来の個人リポジトリと公開サイトは、データ書き出し用に保持します。Organizationサイトではリポジトリ名を `virtual-closet-studio.github.io`、`vite.config.js` の `base` を `/` にします。ローカル確認は `npm run dev`、本番成果物の確認は `npm run build` → `npm run preview` を使い、表示されたURLの `/` を開きます。
 
 `node_modules`、`dist`、キャッシュ、秘密情報、個人のバックアップJSONはリポジトリに登録しません。同梱3D素材の公開許可は今回の移行で確認済みですが、第三者への再配布ライセンスを新たに付与するものではありません。
 
 ## 旧サイトからのデータ移行
 
-1. 保存データのあるブラウザーで [旧サイト](https://closet-studio-vrtryon.aizap.chatgpt.site/) を開き、「データを書き出す」を選びます。
+1. 保存データのあるブラウザーで [従来のGitHub Pagesサイト](https://aizaaaaap.github.io/virtual-closet/) または [旧Sitesサイト](https://closet-studio-vrtryon.aizap.chatgpt.site/) を開き、「データを書き出す」を選びます。
 2. 新しいGitHub Pagesのサイトを開き、「データを読み込む」から保存したJSONを選びます。
 3. 件数を確認して「置き換えて読み込む」を選びます。
 4. 服・画像・コーデ・体形を確認し、再読み込みして保存できていることを確認します。
