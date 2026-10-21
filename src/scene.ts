@@ -455,6 +455,10 @@ export class ClosetScene {
     const light = new THREE.DirectionalLight('#ffffff', 2.1);
     light.position.set(2.8, 5, 4);
     this.scene.add(light);
+    // Match the front light on the back so rotating the avatar keeps fabrics readable.
+    const backLight = new THREE.DirectionalLight('#ffffff', 2.1);
+    backLight.position.set(-2.8, 5, -4);
+    this.scene.add(backLight);
     const floor = new THREE.Mesh(new THREE.CylinderGeometry(1.25, 1.25, .035, 64), new THREE.MeshStandardMaterial({ color: '#e5e5e2', roughness: 1 }));
     floor.position.y = -.04;
     this.scene.add(floor);
