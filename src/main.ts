@@ -153,6 +153,7 @@ function render(refreshScene = true): void {
 }
 
 function openEditor(item?: Garment): void {
+  if (item?.photoDesign) { void launchPhotoEditor(item); return; }
   editing = item;
   const dialog = document.querySelector<HTMLDialogElement>('#editor')!;
   const form = document.querySelector<HTMLFormElement>('#garment-form')!;
@@ -167,6 +168,25 @@ function openEditor(item?: Garment): void {
   document.querySelector('#image-note')!.textContent = item?.image ? '現在の画像を使用中。変更する場合は選び直してください。' : '画像は縮小して端末内に保存します。';
   dialog.showModal();
   document.querySelector<HTMLInputElement>('#garment-name')!.focus();
+}
+
+async function launchPhotoEditor(item?: Garment): Promise<void> {
+  try {
+    const { openPhotoEditor } = await import('./photo-editor');
+    await openPhotoEditor({ item, body: { ...state.body },
+      save: async garment => {
+        const next = structuredClone(state);
+        next.garments = item ? next.garments.map(g => g.id === garment.id ? garment : g) : [...next.garments, garment];
+        if (item && item.category !== garment.category && next.selected[item.category] === item.id) delete next.selected[item.category];
+        return commit(next, item ? '写真の服を更新しました' : '写真の服を追加しました');
+      },
+      remove: item ? async () => {
+        const next = structuredClone(state); next.garments = next.garments.filter(g => g.id !== item.id);
+        if (next.selected[item.category] === item.id) delete next.selected[item.category];
+        return commit(next, '服を削除しました');
+      } : undefined,
+    });
+  } catch { toast('写真編集を開けませんでした。もう一度お試しください。', true); }
 }
 
 async function saveGarment(event: SubmitEvent): Promise<void> {
@@ -218,7 +238,7 @@ async function init(): Promise<void> {
     <header class="topbar"><a class="brand" href="./" aria-label="バーチャルクローゼット ホーム"><span class="brand-name">バーチャルクローゼット<small>VIRTUAL CLOSET</small></span></a><div class="topbar-right"><span class="local-indicator"><i></i> この端末に保存</span><button id="import" class="text-button">データを読み込む ↙</button><input id="import-file" type="file" accept=".json,application/json" hidden /><button id="export" class="text-button">データを書き出す ↗</button></div></header>
     <div class="page-heading"><div><span class="section-kicker">YOUR EVERYDAY, REIMAGINED</span><h1>今日の服を、自由に。</h1></div><p>組み合わせて、眺めて、見つける。<br>あなたのためのバーチャル試着室。</p></div>
     <main class="workspace">
-      <section class="closet-panel" aria-label="クローゼット"><div class="menu-heading"><span class="section-kicker">MY WARDROBE</span><span id="count"></span></div><button id="back" class="back-button" hidden>← 戻る <span>全身表示</span></button><h2 id="menu-title">着せ替える</h2><p id="menu-subtitle" class="menu-subtitle"></p><div id="garment-grid" class="garment-grid"></div><button id="add-garment" class="add-button">＋ 服を追加</button><div class="menu-note"><span>MAKE IT YOURS</span><p>いつもの服も、新しい組み合わせに。<br>気になる一着から試してみよう。</p></div></section>
+      <section class="closet-panel" aria-label="クローゼット"><div class="menu-heading"><span class="section-kicker">MY WARDROBE</span><span id="count"></span></div><button id="back" class="back-button" hidden>← 戻る <span>全身表示</span></button><h2 id="menu-title">着せ替える</h2><p id="menu-subtitle" class="menu-subtitle"></p><button id="add-photo" class="add-button photo-add">写真から追加 ↗</button><div id="garment-grid" class="garment-grid"></div><button id="add-garment" class="add-button">＋ 手動で服を追加</button><div class="menu-note"><span>MAKE IT YOURS</span><p>いつもの服も、新しい組み合わせに。<br>気になる一着から試してみよう。</p></div></section>
       <section class="stage-panel" aria-label="3D試着プレビュー"><div class="stage-top"><span class="studio-label"><i></i> FITTING ROOM</span><span id="view-label" aria-live="polite">全身</span></div><div id="scene" class="scene"></div><div class="stage-controls"><button id="reset-camera" class="view-button" aria-label="視点を戻す">⟳ <span>視点を戻す</span></button></div><div class="stage-footer"><span>ドラッグで回転 · スクロールで拡大</span><span class="stage-tag">VIRTUAL FITTING / 01</span></div></section>
     </main>
     <div class="workspace-toolbar"><span class="toolbar-caption">YOUR LOOK, YOUR WAY.</span><div class="toolbar-actions"><button data-panel="look">着用アイテム</button><button data-panel="body">体形調整</button><button data-panel="outfits">保存したコーデ</button><button id="save-outfit" class="primary-button">コーデを保存 ＋</button></div></div><footer class="site-footer"><span>バーチャルクローゼット</span><span>毎日の「何を着よう」を、もっと楽しく。</span></footer>
@@ -232,6 +252,7 @@ async function init(): Promise<void> {
   try { state = await loadState();
   await saveState(state); } catch { toast('端末内のデータを読み込めませんでした。保存機能をご確認ください。', true); }
   render();
+  document.querySelector('#add-photo')!.addEventListener('click', () => { void launchPhotoEditor(); });
   document.querySelector('#add-garment')!.addEventListener('click', () => openEditor());
   document.querySelector('#export')!.addEventListener('click', () => exportState(state));
   const importFile = document.querySelector<HTMLInputElement>('#import-file')!;

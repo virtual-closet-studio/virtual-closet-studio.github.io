@@ -1,5 +1,5 @@
 import { migrateMaterials, type ClosetState } from './storage';
-import { TEMPLATES, type Body, type Category, type Garment, type Outfit } from './types';
+import { TEMPLATES, type Body, type Category, type Garment, type Outfit, type PhotoSide, type PhotoDesign } from './types';
 
 export const MAX_BACKUP_BYTES = 50 * 1024 * 1024;
 const categories: Category[] = ['top', 'outer', 'bottom', 'shoes'];
@@ -20,6 +20,18 @@ const body = (value: unknown): Body => {
   const b = record(value);
   return { width: number(b.width, .75, 1.35), height: number(b.height, .8, 1.25) };
 };
+const photoImage = (value: unknown): string => {
+  if (typeof value !== 'string' || value.length > 8 * 1024 * 1024 || !/^data:image\/(?:webp|png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/.test(value)) return invalid();
+  return value;
+};
+const photoSide = (value: unknown): PhotoSide => {
+  const side = record(value);
+  return { image: photoImage(side.image), source: photoImage(side.source), x: number(side.x, -1, 1), y: number(side.y, -1, 1), scale: number(side.scale, .2, 3), rotation: number(side.rotation, -180, 180) };
+};
+const photoDesign = (value: unknown): PhotoDesign => {
+  const design = record(value);
+  return { front: photoSide(design.front), ...(design.back === undefined ? {} : { back: photoSide(design.back) }) };
+};
 const selection = (value: unknown): ClosetState['selected'] => {
   const source = record(value);
   if (Object.keys(source).some(key => !categories.includes(key as Category))) return invalid();
@@ -35,7 +47,7 @@ export function parseBackup(text: string): ClosetState {
   if (new Blob([text]).size > MAX_BACKUP_BYTES) throw new Error('バックアップは50 MB以下のファイルを選んでください。');
   let source: Record<string, unknown>;
   try { source = record(JSON.parse(text)); } catch { return invalid(); }
-  if (source.version !== 1) throw new Error('対応していないバックアップ形式です。バージョン1のJSONを選んでください。');
+  if (source.version !== 1 && source.version !== 2) throw new Error('対応していないバックアップ形式です。バージョン1・2のJSONを選んでください。');
   if (!Array.isArray(source.garments) || !Array.isArray(source.outfits)) return invalid();
   const garments: Garment[] = source.garments.map(value => {
     const g = record(value);
@@ -49,6 +61,7 @@ export function parseBackup(text: string): ClosetState {
       id: string(g.id, 200), name: string(g.name, 40), template,
       category: g.category as Category, pattern: g.pattern as Garment['pattern'], color: g.color,
       ...(g.image === undefined ? {} : { image: g.image as string }),
+      ...(g.photoDesign === undefined ? {} : { photoDesign: photoDesign(g.photoDesign) }),
       createdAt: number(g.createdAt, 0, Number.MAX_SAFE_INTEGER),
     };
   });

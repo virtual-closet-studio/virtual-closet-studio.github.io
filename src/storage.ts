@@ -108,7 +108,7 @@ export async function compressImage(file: File): Promise<string> {
 }
 
 export function exportState(state: ClosetState): void {
-  const blob = new Blob([JSON.stringify({ version: 1, ...state }, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ version: 2, ...state }, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;

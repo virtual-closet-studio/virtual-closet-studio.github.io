@@ -5,3 +5,4 @@
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important}}
 
 #import-error{color:#c40010;font-size:12px;line-height:1.7}button:disabled{cursor:wait;opacity:.55}@media(max-width:650px){.topbar-right{flex-direction:column;align-items:flex-end;gap:6px}.topbar-right .text-button{padding:4px 0}}
+.photo-add{margin:0 0 20px;background:#171717;color:#fff}

@@ -5,6 +5,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { applyVisibilityMask, volumeShader, BODY_PROTECTION_GLSL, type Volume } from './visibility';
 import { VolumeWorker } from './volume-client';
 import type { Body, Garment } from './types';
+import { applyPhotoDesign, disposePhotoMaterial } from './photo-material';
 
 type Fit = { width: number; height: number; outerWidth: number; depth: number };
 export type CameraView = 'full' | 'upper' | 'lower' | 'feet';
@@ -394,7 +395,7 @@ function clearClones(group: THREE.Group): void {
   group.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
     const materials = Array.isArray(object.material) ? object.material : [object.material];
-    materials.forEach((material) => material.dispose());
+    materials.forEach((material) => { disposePhotoMaterial(material); material.dispose(); });
     if (object.userData.ownedGeometry) object.geometry.dispose();
   });
   group.clear();
@@ -430,7 +431,7 @@ export class ClosetScene {
   private view: CameraView = 'full';
   private transition?: { start: number; from: THREE.Vector3; targetFrom: THREE.Vector3; to: THREE.Vector3; targetTo: THREE.Vector3 };
 
-  constructor(private host: HTMLElement) {
+  constructor(private host: HTMLElement, private prefetch = true) {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = false;
@@ -516,7 +517,7 @@ export class ClosetScene {
   }
   private prefetchStarted=false;
   private async prefetchModels(){
-    if(this.prefetchStarted)return;this.prefetchStarted=true;
+    if(!this.prefetch||this.prefetchStarted)return;this.prefetchStarted=true;
     for(const key of ['tee','jacket','pants','boots','sneakers','blazer','shirt','cargo'] as ModelKey[]){
       await new Promise<void>(resolve=>setTimeout(resolve,0));
       if(this.disposed)return;
@@ -764,14 +765,15 @@ export class ClosetScene {
   private updateAppearance(selection:Garment[]){
     for(const root of this.clothing.children){
       const item=selection.find(item=>item.category===root.userData.category);if(!item)continue;
-      const texture=patternedTexture(item),old=new Set<THREE.Texture>();
+      const texture=item.photoDesign?undefined:patternedTexture(item),old=new Set<THREE.Texture>();
       root.traverse(o=>{if(!(o instanceof THREE.Mesh))return;for(const material of Array.isArray(o.material)?o.material:[o.material]){
         const mat=material as THREE.MeshStandardMaterial;
         if(mat.userData.patternTexture)old.add(mat.userData.patternTexture);
         if(!('sourceMap' in mat.userData))mat.userData.sourceMap=item.template==='shirt'?mat.map:null;
-        const hadMap=!!mat.map;mat.map=texture??mat.userData.sourceMap;mat.color.set(texture?'#ffffff':item.color);mat.userData.patternTexture=texture;
+        const hadMap=!!mat.map;mat.map=item.photoDesign?null:texture??mat.userData.sourceMap;mat.color.set(texture?'#ffffff':item.color);mat.userData.patternTexture=texture;
         if(hadMap!==!!mat.map)mat.needsUpdate=true;
       }});old.forEach(t=>t.dispose());
+      applyPhotoDesign(root,item);
     }
   }
   private addLegacySkirt(item: Garment,group=this.clothing,body=this.body): void {
@@ -839,6 +841,14 @@ export class ClosetScene {
 
   resetCamera(): void {
     this.setView(this.view);
+  }
+
+  viewBack(): void {
+    this.transition = undefined;
+    const offset = this.camera.position.clone().sub(this.controls.target);
+    this.camera.position.copy(this.controls.target).add(new THREE.Vector3(0, offset.y, -offset.length()));
+    const damping = this.controls.enableDamping;
+    this.controls.enableDamping = false; this.controls.update(); this.controls.enableDamping = damping;
   }
 
   dispose(): void {

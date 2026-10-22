@@ -1,6 +1,17 @@
 export type Category = 'top' | 'outer' | 'bottom' | 'shoes';
 export type Pattern = 'solid' | 'stripe' | 'check' | 'image';
 
+export interface PhotoSide {
+  image: string;
+  // Retain the unmasked crop so erased pixels can be restored after saving.
+  source: string;
+  x: number;
+  y: number;
+  scale: number;
+  rotation: number;
+}
+export interface PhotoDesign { front: PhotoSide; back?: PhotoSide }
+
 export interface Garment {
   id: string;
   name: string;
@@ -9,6 +20,7 @@ export interface Garment {
   color: string;
   pattern: Pattern;
   image?: string;
+  photoDesign?: PhotoDesign;
   createdAt: number;
 }
 
