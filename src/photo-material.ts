@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Garment, PhotoSide } from './types';
+import { preparePhotoTexture } from './photo-processing';
 
 type State = {
   original: THREE.Material['onBeforeCompile']; key: string; metalness: number;
@@ -17,10 +18,19 @@ const empty = () => {
 };
 function texture(url?: string): THREE.Texture {
   if (!url) return empty();
-  const t = new THREE.Texture(); t.colorSpace = THREE.SRGBColorSpace;
+  const t = new THREE.DataTexture(); t.colorSpace = THREE.SRGBColorSpace;
+  t.flipY = true; t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true;
   const img = new Image(); let disposed = false;
   t.addEventListener('dispose', () => { disposed = true; img.onload = null; });
-  img.onload = () => { if (!disposed) { t.image = img; t.needsUpdate = true; } };
+  img.onload = () => {
+    if (disposed) return;
+    const canvas = document.createElement('canvas'); canvas.width = img.width; canvas.height = img.height;
+    const context = canvas.getContext('2d')!; context.drawImage(img, 0, 0);
+    const pixels = context.getImageData(0, 0, img.width, img.height);
+    t.image = { data: preparePhotoTexture(pixels.data, img.width, img.height), width: img.width, height: img.height };
+    t.needsUpdate = true;
+  };
   img.src = url; return t;
 }
 const transform = (side?: PhotoSide) => new THREE.Vector4(side?.x ?? 0, side?.y ?? 0, side?.scale ?? 1, (side?.rotation ?? 0) * Math.PI / 180);

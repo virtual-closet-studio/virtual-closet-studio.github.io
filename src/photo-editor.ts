@@ -73,7 +73,7 @@ export async function openPhotoEditor(options: Options): Promise<void> {
     updateButtons();
   }
   function exportSide(current: Editable): PhotoSide {
-    if (!current.placement.image) current.placement.image = current.mask.toDataURL('image/webp', .9);
+    if (!current.placement.image) current.placement.image = current.mask.toDataURL('image/png');
     if (!current.placement.source) current.placement.source = current.source.toDataURL('image/webp', .9);
     return { ...current.placement };
   }

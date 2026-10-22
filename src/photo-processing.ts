@@ -78,6 +78,50 @@ export function foregroundBounds(pixels: Uint8ClampedArray, width: number, heigh
   return right < left ? undefined : { x: left, y: top, width: right - left + 1, height: bottom - top + 1 };
 }
 
+/** Render-only edge cleanup: leave saved photos and enclosed white prints untouched. */
+export function preparePhotoTexture(pixels: Uint8ClampedArray, width: number, height: number): Uint8Array {
+  const result = new Uint8Array(pixels), count = width * height;
+  const distance = new Int32Array(count).fill(-1), queue = new Int32Array(count);
+  let head = 0, tail = 0;
+  const neighbors = (p: number, visit: (q: number) => void) => {
+    if (p % width) visit(p - 1);
+    if (p % width < width - 1) visit(p + 1);
+    if (p >= width) visit(p - width);
+    if (p < count - width) visit(p + width);
+  };
+  // Include the outside of a tightly cropped image in the silhouette distance.
+  for (let p = 0; p < count; p++) if (pixels[p * 4 + 3] < 20) {
+    distance[p] = 0; queue[tail++] = p;
+  }
+  for (let p = 0; p < count; p++) if (distance[p] < 0 &&
+    (p < width || p >= count - width || p % width === 0 || p % width === width - 1)) {
+    distance[p] = 1; queue[tail++] = p;
+  }
+  while (head < tail) {
+    const p = queue[head++];
+    neighbors(p, q => { if (distance[q] < 0) { distance[q] = distance[p] + 1; queue[tail++] = q; } });
+  }
+  const trim = Math.max(1, Math.min(3, Math.ceil(Math.max(width, height) / 400)));
+  for (let p = 0; p < count; p++) {
+    const blend = Math.max(0, Math.min(1, (distance[p] - trim) / 2));
+    result[p * 4 + 3] = Math.round(pixels[p * 4 + 3] * blend * blend * (3 - 2 * blend));
+  }
+  // GPU filtering must sample garment colors, not the old white background in
+  // transparent texels. Extend edge RGB without extending its alpha coverage.
+  distance.fill(-1); head = 0; tail = 0;
+  for (let p = 0; p < count; p++) if (result[p * 4 + 3] > 0) { distance[p] = 0; queue[tail++] = p; }
+  while (head < tail) {
+    const p = queue[head++];
+    neighbors(p, q => {
+      if (distance[q] >= 0) return;
+      distance[q] = distance[p] + 1;
+      for (let c = 0; c < 3; c++) result[q * 4 + c] = result[p * 4 + c];
+      queue[tail++] = q;
+    });
+  }
+  return result;
+}
+
 export async function readPhoto(file: File): Promise<HTMLCanvasElement> {
   if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) throw new Error('JPEG・PNG・WebPの写真を選んでください。');
   if (file.size > 15 * 1024 * 1024) throw new Error('15 MB以下の写真を選んでください。');
