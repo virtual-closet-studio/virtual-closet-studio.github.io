@@ -37,9 +37,18 @@ await wear([pants,tee,outer,boots]);assert.equal(builds,secondBuilds,'revisiting
 scene.setLook({width:1,height:1},[cargo,hoodie,outer,sneakers]);await Promise.resolve();scene.setLook({width:1,height:1},[pants,shirt,outer,boots]);await settled();assert.equal(scene.host.dataset.readyLook,'pants,shirt,blazer,boots','stale work cannot replace final selection');
 for(const body of [{width:.75,height:.8},{width:1,height:1},{width:1.35,height:1.25}]){
  for(const inner of [tee,shirt,hoodie])for(const layered of [false,true])await wear([pants,inner,...layered?[outer]:[],boots],body);
- for(const bottom of [pants,cargo])for(const shoe of [boots,sneakers])await wear([bottom,shirt,outer,shoe],body);
+ for(const bottom of [pants,cargo,garment('skirt','bottom')])for(const shoe of [boots,sneakers])await wear([bottom,shirt,outer,shoe],body);
  assert.ok(scene.prepared.size<=6);assert.ok(scene.fitted.size<=12);assert.ok(scene.volumeCache.size<=24);
 }
+await wear([cargo,hoodie,outer,sneakers]);
+for(const root of [scene.mannequin,...scene.clothing.children])root.traverse(mesh=>{
+ if(!mesh.isMesh)return;
+ const shader={uniforms:{},vertexShader:'#include <common>\n#include <project_vertex>',fragmentShader:'#include <common>\n#include <clipping_planes_fragment>'};
+ mesh.material.onBeforeCompile(shader,{});
+ if(root===scene.mannequin)assert.match(shader.fragmentShader,/skinLayer0[0-9]Covered[\s\S]*skinLayer1[0-9]Covered/,'skin is checked against each layer independently');
+ if(root.userData.category==='bottom')assert.match(shader.fragmentShader,/waistVolume[\s\S]*Covered/,'trouser waistband is clipped by tops');
+ if(root.userData.category==='top')assert.match(shader.fragmentShader,/outerVolume[\s\S]*Covered/,'inner clothing cuts require actual outer coverage');
+});
 for(let i=0;i<10;i++)await wear([cargo,shirt,outer,sneakers],{width:.8+i*.03,height:1});
 assert.ok(disposals>0,'evicted unreferenced volume textures are released');
 for(const look of scene.prepared.values())for(const volume of look.volumes)assert.ok([...scene.volumeCache.values()].some(v=>v.includes(volume)),'live cached looks retain their GPU textures');

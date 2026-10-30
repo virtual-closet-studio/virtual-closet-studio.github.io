@@ -6,6 +6,6 @@ self.onmessage=(event:MessageEvent<VolumeJob & {id:number}>)=>{
  try {
   const mesh=new THREE.Mesh(new THREE.BufferGeometry().setAttribute('position',new THREE.BufferAttribute(positions,3)));
   const volume=fittingVolume(mesh,new THREE.Vector3(...origin),new THREE.Vector3(...end),p=>accepts(filter,p));
-  self.postMessage({id,volume:volume?{origin:volume.origin.toArray(),axis:volume.axis.toArray(),u:volume.u.toArray(),v:volume.v.toArray(),length:volume.length,radii:volume.radii}:undefined},volume?[volume.radii.buffer]:[]);
+  self.postMessage({id,volume:volume?{origin:volume.origin.toArray(),axis:volume.axis.toArray(),u:volume.u.toArray(),v:volume.v.toArray(),length:volume.length,radii:volume.radii,coverage:volume.coverage}:undefined},volume?[volume.radii.buffer,volume.coverage.buffer]:[]);
  }catch(error){self.postMessage({id,error:String(error)});}
 };

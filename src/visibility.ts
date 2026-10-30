@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 const f=(v:number)=>v.toFixed(7);
 const vec=(v:THREE.Vector3)=>`vec3(${f(v.x)},${f(v.y)},${f(v.z)})`;
-export type Volume={origin:THREE.Vector3;axis:THREE.Vector3;u:THREE.Vector3;v:THREE.Vector3;length:number;radii:Float32Array;texture:THREE.DataTexture};
+export type Volume={origin:THREE.Vector3;axis:THREE.Vector3;u:THREE.Vector3;v:THREE.Vector3;length:number;radii:Float32Array;coverage:Float32Array;texture:THREE.DataTexture};
 const angles=128, rows=128;
 const cosines=Float64Array.from({length:angles},(_,i)=>Math.cos(i/angles*Math.PI*2));
 const sines=Float64Array.from({length:angles},(_,i)=>Math.sin(i/angles*Math.PI*2));
@@ -47,6 +47,9 @@ export function fittingVolume(root:THREE.Object3D,origin:THREE.Vector3,end:THREE
   }
  });
  if(!radii.some(r=>r>0))return;
+ // Keep actual cloth coverage separate from the closed containment envelope.
+ // Filling an open jacket front must never make that opening eligible for cuts.
+ const coverage=Float32Array.from(radii,r=>r>0?1:0);
  // Bridge open collars, cuffs and jacket fronts in the invisible volume.
  for(let row=0;row<rows;row++){
   const base=row*angles,original=radii.slice(base,base+angles);
@@ -60,8 +63,12 @@ export function fittingVolume(root:THREE.Object3D,origin:THREE.Vector3,end:THREE
   let nearest=-1;for(let delta=1;delta<rows;delta++){if(row-delta>=0&&radii[(row-delta)*angles]){nearest=row-delta;break;}if(row+delta<rows&&radii[(row+delta)*angles]){nearest=row+delta;break;}}
   if(nearest>=0)radii.set(radii.slice(nearest*angles,(nearest+1)*angles),row*angles);
  }
- const texture=new THREE.DataTexture(radii,angles,rows,THREE.RedFormat,THREE.FloatType);texture.wrapS=THREE.RepeatWrapping;texture.minFilter=texture.magFilter=THREE.NearestFilter;texture.needsUpdate=true;
- return {origin:origin.clone(),axis,u,v,length,radii,texture};
+ const texture=volumeTexture(radii,coverage);
+ return {origin:origin.clone(),axis,u,v,length,radii,coverage,texture};
+}
+export function volumeTexture(radii:Float32Array,coverage:Float32Array):THREE.DataTexture {
+ const data=new Float32Array(radii.length*2);for(let i=0;i<radii.length;i++){data[i*2]=radii[i];data[i*2+1]=coverage[i];}
+ const texture=new THREE.DataTexture(data,angles,rows,THREE.RGFormat,THREE.FloatType);texture.wrapS=THREE.RepeatWrapping;texture.minFilter=texture.magFilter=THREE.NearestFilter;texture.needsUpdate=true;return texture;
 }
 export function volumeContains(volume:Volume,p:THREE.Vector3,tolerance=0):boolean{
  const d=p.clone().sub(volume.origin),t=d.dot(volume.axis);if(t<0||t>volume.length)return false;
@@ -71,13 +78,39 @@ export function volumeContains(volume:Volume,p:THREE.Vector3,tolerance=0):boolea
  const r0=sample(row,col)*(1-dx)+sample(row,col+1)*dx,r1=sample(row+1,col)*(1-dx)+sample(row+1,col+1)*dx;
  return Math.hypot(d.dot(volume.u),d.dot(volume.v))<=r0*(1-dy)+r1*dy+tolerance;
 }
+/** Only cloth-covered, nearby exterior points are protrusions; open ends stay intact. */
+export function volumeCovered(volume:Volume,p:THREE.Vector3,reach:number):boolean {
+ const d=p.clone().sub(volume.origin),t=d.dot(volume.axis);if(t<0||t>volume.length)return false;
+ let angle=Math.atan2(d.dot(volume.v),d.dot(volume.u))/(2*Math.PI);if(angle<0)angle+=1;
+ const y=t/volume.length*(rows-1),x=angle*angles,row=Math.floor(y),col=Math.floor(x)%angles,dy=y-row,dx=x-Math.floor(x);
+ const sample=(data:Float32Array,r:number,c:number)=>data[Math.min(rows-1,r)*angles+c%angles];
+ const blend=(data:Float32Array)=>(sample(data,row,col)*(1-dx)+sample(data,row,col+1)*dx)*(1-dy)+(sample(data,row+1,col)*(1-dx)+sample(data,row+1,col+1)*dx)*dy;
+ return blend(volume.coverage)>.5&&Math.hypot(d.dot(volume.u),d.dot(volume.v))<=blend(volume.radii)+reach;
+}
+export function protrudes(volumes:Volume[],p:THREE.Vector3,reach:number):boolean {
+ return volumes.some(v=>volumeCovered(v,p,reach))&&!volumes.some(v=>volumeContains(v,p));
+}
 export function volumeShader(volumes:Volume[],prefix:string,tolerance:number){
  const uniforms:Record<string,{value:unknown}>={},functions:string[]=[];
  volumes.forEach((volume,i)=>{
-  const name=`${prefix}${i}`;uniforms[name]={value:volume.texture};
-  functions.push(`uniform sampler2D ${name};\nbool ${name}Contains(vec3 p){vec3 d=p-${vec(volume.origin)};float t=dot(d,${vec(volume.axis)});float a=atan(dot(d,${vec(volume.v)}),dot(d,${vec(volume.u)}))/6.28318530718;vec2 grid=vec2(fract(a)*128.0,clamp(t/${f(volume.length)},0.0,1.0)*127.0);vec2 cell=floor(grid),blend=fract(grid);vec2 uv=(cell+0.5)/128.0;float r0=mix(texture2D(${name},uv).r,texture2D(${name},uv+vec2(0.0078125,0.0)).r,blend.x);float r1=mix(texture2D(${name},uv+vec2(0.0,0.0078125)).r,texture2D(${name},uv+vec2(0.0078125)).r,blend.x);float radius=mix(r0,r1,blend.y);return t>=0.0&&t<=${f(volume.length)}&&length(vec2(dot(d,${vec(volume.u)}),dot(d,${vec(volume.v)})))<=radius+${f(tolerance)};}`);
+  const name=prefix+i;uniforms[name]={value:volume.texture};
+  functions.push(`uniform sampler2D ${name};
+vec4 ${name}Sample(vec3 p){
+ vec3 d=p-${vec(volume.origin)};float t=dot(d,${vec(volume.axis)});
+ float a=atan(dot(d,${vec(volume.v)}),dot(d,${vec(volume.u)}))/6.28318530718;
+ vec2 grid=vec2(fract(a)*128.0,clamp(t/${f(volume.length)},0.0,1.0)*127.0);
+ vec2 cell=floor(grid),blend=fract(grid);vec2 uv=(cell+0.5)/128.0;
+ vec2 r0=mix(texture2D(${name},uv).rg,texture2D(${name},uv+vec2(0.0078125,0.0)).rg,blend.x);
+ vec2 r1=mix(texture2D(${name},uv+vec2(0.0,0.0078125)).rg,texture2D(${name},uv+vec2(0.0078125)).rg,blend.x);
+ return vec4(mix(r0,r1,blend.y),t,length(vec2(dot(d,${vec(volume.u)}),dot(d,${vec(volume.v)}))));
+}
+bool ${name}Contains(vec3 p){vec4 s=${name}Sample(p);return s.z>=0.0&&s.z<=${f(volume.length)}&&s.w<=s.x+${f(tolerance)};}
+bool ${name}Covered(vec3 p,float reach){vec4 s=${name}Sample(p);return s.z>=0.0&&s.z<=${f(volume.length)}&&s.y>.5&&s.w<=s.x+reach;}
+`);
  });
- return {uniforms,declarations:functions.join('\n'),inside:(p:string)=>volumes.map((_,i)=>`${prefix}${i}Contains(${p})`).join(' || ')||'false'};
+ const inside=(p:string)=>volumes.map((_,i)=>prefix+i+'Contains('+p+')').join(' || ')||'false';
+ const covered=(p:string,reach:number)=>volumes.map((_,i)=>prefix+i+'Covered('+p+','+f(reach)+')').join(' || ')||'false';
+ return {uniforms,declarations:functions.join('\n'),inside,covered,outside:(p:string,reach:number)=>'('+covered(p,reach)+') && !('+inside(p)+')'};
 }
 export const BODY_PROTECTION_GLSL='((maskSource.y>=1.55 && abs(maskSource.x)<.17) || (abs(maskSource.x)>=.76 && maskSource.y>1.30))';
 export function protectedBody(source:THREE.Vector3):boolean{return source.y>=1.55&&Math.abs(source.x)<.17||Math.abs(source.x)>=.76&&source.y>1.30;}

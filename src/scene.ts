@@ -578,7 +578,7 @@ export class ClosetScene {
         continue;
       }
       const source = this.models[item.template as ModelKey];
-      if (!source) { if (item.template === 'skirt') this.addLegacySkirt(item,clothing,bodyConfig); continue; }
+      if (!source) { if (item.template === 'skirt') bottomRoot=this.addLegacySkirt(item,clothing,bodyConfig); continue; }
       const root = new THREE.Group();
       const garment = source.clone(true);
       const texture = patternedTexture(item);
@@ -671,7 +671,8 @@ export class ClosetScene {
       const z=chest.getCenter(new THREE.Vector3()).z;
       const neck=sectionBounds(root,1.45*bodyConfig.height,1.8*bodyConfig.height,.10*bodyConfig.width);
       const top=Math.min(neck?.max.y??bounds.max.y,1.64*bodyConfig.height);
-      const torso=await this.volumeWorker.build(root,new THREE.Vector3(0,bounds.min.y,z),new THREE.Vector3(0,top,z),{kind:'torso',width});
+      const hem=sectionBounds(root,bounds.min.y,1.3*bodyConfig.height,.18*bodyConfig.width)?.min.y??bounds.min.y;
+      const torso=await this.volumeWorker.build(root,new THREE.Vector3(0,hem,z),new THREE.Vector3(0,top,z),{kind:'torso',width});
       const result:Volume[]=torso?[torso]:[];
       if(fit)for(const [i,sleeve] of [fit.left,fit.right].entries()){
         if(!sleeve.valid)continue;
@@ -685,11 +686,15 @@ export class ClosetScene {
     const innerFits=innerRoot?garmentSleeves(innerRoot,bodyConfig,landmarks,innerItem?.template!=='tee'):undefined;
     const innerVolumes=innerRoot?await topVolumes(innerRoot,innerFits,'inner:'+innerItem?.template+':'+(selection.find(item=>item.category==='outer')?.template??'single')):[];
     if(outerRoot&&innerRoot&&outerVolumes.length){
-      const mask=volumeShader(outerVolumes,'outerVolume',-.004*bodyConfig.width);
-      applyVisibilityMask(innerRoot,`!(${mask.inside('maskWorld')})`,mask.uniforms,mask.declarations);
+      const mask=volumeShader(outerVolumes,'outerVolume',0);
+      applyVisibilityMask(innerRoot,mask.outside('maskWorld',.12*bodyConfig.width),mask.uniforms,mask.declarations);
     }
     const legVolumes=bottomRoot?await cachedVolumes('bottom:'+selection.find(item=>item.category==='bottom')?.template,async()=>{
       const bounds=new THREE.Box3().setFromObject(bottomRoot),volumes:Volume[]=[];
+      if(bottomRoot.userData.template==='skirt'){
+        const volume=await this.volumeWorker.build(bottomRoot,new THREE.Vector3(0,bounds.min.y,0),new THREE.Vector3(0,bounds.max.y,0),{kind:'torso',width:bounds.max.x+.01});
+        return volume?[volume]:[];
+      }
       for(const side of [-1,1]){
         const cuff=sectionBounds(bottomRoot,bounds.min.y,bounds.min.y+.06*bodyConfig.height,.5*bodyConfig.width,side);
         const center=cuff?.getCenter(new THREE.Vector3())??new THREE.Vector3(side*.105*bodyConfig.width,0,0);
@@ -698,10 +703,15 @@ export class ClosetScene {
       }
       return volumes;
     }):[];
+    // Each outer garment gets its own cut. Being inside trousers cannot exempt
+    // skin (or the trousers themselves) from protruding through a hoodie.
+    if(bottomRoot){
+      const topMasks=[innerVolumes,outerVolumes].filter(v=>v.length).map((v,i)=>volumeShader(v,'waistVolume'+i,0));
+      if(topMasks.length)applyVisibilityMask(bottomRoot,topMasks.map(m=>'('+m.outside('maskWorld',.12*bodyConfig.width)+')').join(' || '),Object.assign({},...topMasks.map(m=>m.uniforms)),topMasks.map(m=>m.declarations).join('\n'));
+    }
     if(shoeRoot&&legVolumes.length){
-      const mask=volumeShader(legVolumes,'legVolume',.004*bodyConfig.width);
-      const cut=legVolumes.map(v=>`(maskWorld.x ${v.origin.x<0?'<':'>='} 0.0 && maskWorld.y >= ${v.origin.y.toFixed(7)})`).join(' || ');
-      applyVisibilityMask(shoeRoot,`(${cut}) && !(${mask.inside('maskWorld')})`,mask.uniforms,mask.declarations);
+      const mask=volumeShader(legVolumes,'legVolume',0);
+      applyVisibilityMask(shoeRoot,mask.outside('maskWorld',.12*bodyConfig.width),mask.uniforms,mask.declarations);
     }
     const footVolumes=shoeRoot?await cachedVolumes('shoes:'+selection.find(item=>item.category==='shoes')?.template,async()=>{
       const bounds=new THREE.Box3().setFromObject(shoeRoot),volumes:Volume[]=[];
@@ -723,22 +733,10 @@ export class ClosetScene {
       const mat = new THREE.MeshStandardMaterial({ color: '#d5b4a1', roughness: .92, side: THREE.DoubleSide });
       object.material = mat;
     });
-    const skinVolumes=innerVolumes.length?innerVolumes:outerVolumes;
-    const allVolumes=[...skinVolumes,...legVolumes,...footVolumes];
-    if(allVolumes.length){
-      const mask=volumeShader(allVolumes,'skinVolume',-.003*bodyConfig.width);
-      const topRoot=innerRoot??outerRoot;
-      const hem=topRoot?new THREE.Box3().setFromObject(topRoot).min.y/bodyConfig.height:0;
-      const fits=innerFits??sleeves;
-      const armRegions=fits?[fits.left,fits.right].filter(fit=>fit.valid).map((fit,i)=>`(maskSource.x ${i===0?'< -':'> '}.17 && abs(maskSource.x)<${(fit.sourceExitX-.025).toFixed(7)} && maskSource.y>1.20 && maskSource.y<1.75)`):[];
-      const torso=topRoot?`(maskSource.y>${hem.toFixed(7)} && maskSource.y<1.55 && abs(maskSource.x)<.27)`:'false';
-      const legs=bottomRoot?`(maskSource.y>${(new THREE.Box3().setFromObject(bottomRoot).min.y/bodyConfig.height).toFixed(7)} && maskSource.y<${(new THREE.Box3().setFromObject(bottomRoot).max.y/bodyConfig.height).toFixed(7)} && abs(maskSource.x)<.42)`:'false';
-      const feet=shoeRoot?`(maskSource.y<${(new THREE.Box3().setFromObject(shoeRoot).max.y/bodyConfig.height).toFixed(7)})`:'false';
-      const protectedRegion=BODY_PROTECTION_GLSL;
-      const outerSkin=volumeShader(outerVolumes,'outerSkinVolume',-.002*bodyConfig.width);
-      const outerArmRegions=sleeves?[sleeves.left,sleeves.right].map((fit,i)=>fit.valid?`(maskSource.x ${i===0?'< -':'> '}.17 && abs(maskSource.x)<${(fit.sourceExitX-.025).toFixed(7)} && maskSource.y>1.20 && maskSource.y<1.75)`:'false'):[];
-      const outerCut=outerVolumes.length?`((${[torso,...outerArmRegions].join(' || ')}) && !(${outerSkin.inside('maskWorld')}))`:'false';
-      applyVisibilityMask(body,`!${protectedRegion} && (((${[torso,legs,feet,...armRegions].join(' || ')}) && !(${mask.inside('maskWorld')})) || ${outerCut})`,{...mask.uniforms,...outerSkin.uniforms},mask.declarations+'\n'+outerSkin.declarations,true);
+    const skinMasks=[innerVolumes,outerVolumes,legVolumes,footVolumes].filter(v=>v.length).map((v,i)=>volumeShader(v,'skinLayer'+i,0));
+    if(skinMasks.length){
+      const cuts=skinMasks.map(m=>'('+m.outside('maskWorld',.12*bodyConfig.width)+')').join(' || ');
+      applyVisibilityMask(body,'!'+BODY_PROTECTION_GLSL+' && ('+cuts+')',Object.assign({},...skinMasks.map(m=>m.uniforms)),skinMasks.map(m=>m.declarations).join('\n'),true);
     }
     mannequin.add(body);
     if(this.disposed||revision!==this.revision)return;
@@ -776,14 +774,16 @@ export class ClosetScene {
       applyPhotoDesign(root,item);
     }
   }
-  private addLegacySkirt(item: Garment,group=this.clothing,body=this.body): void {
+  private addLegacySkirt(item: Garment,group=this.clothing,body=this.body): THREE.Mesh {
     const mat = new THREE.MeshStandardMaterial({ color: item.color, roughness: .88, side: THREE.DoubleSide });
-    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(.34 * body.width, .52 * body.width, .54 * body.height, 28), mat);
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(.34 * body.width, .52 * body.width, .54 * body.height, 28, 1, true), mat);
     mesh.position.y = .91 * body.height;
     mesh.scale.z = .72;
     mesh.userData.ownedGeometry = true;
     mesh.userData.category=item.category;
+    mesh.userData.template=item.template;
     group.add(mesh);
+    return mesh;
   }
 
   private resize(): void {

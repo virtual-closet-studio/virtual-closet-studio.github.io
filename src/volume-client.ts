@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { Volume } from './visibility';
+import { volumeTexture, type Volume } from './visibility';
 import type { Filter } from './volume-filter';
 export class VolumeWorker {
  private worker!:Worker;
@@ -13,7 +13,7 @@ export class VolumeWorker {
   this.worker.onmessage=({data})=>{const task=this.pending.get(data.id);if(!task)return;this.pending.delete(data.id);
    if(data.error){task.reject(new Error(data.error));return;}
    const v=data.volume;if(!v){task.resolve(undefined);return;}
-   const texture=new THREE.DataTexture(v.radii,128,128,THREE.RedFormat,THREE.FloatType);texture.wrapS=THREE.RepeatWrapping;texture.minFilter=texture.magFilter=THREE.NearestFilter;texture.needsUpdate=true;
+   const texture=volumeTexture(v.radii,v.coverage);
    task.resolve({...v,origin:new THREE.Vector3(...v.origin),axis:new THREE.Vector3(...v.axis),u:new THREE.Vector3(...v.u),v:new THREE.Vector3(...v.v),texture});
   };
   this.worker.onerror=()=>{this.failed=true;this.worker.terminate();for(const task of this.pending.values())task.reject(new Error('重ね着の計算に失敗しました'));this.pending.clear();};
