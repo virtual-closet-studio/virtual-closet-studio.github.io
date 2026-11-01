@@ -687,7 +687,7 @@ export class ClosetScene {
     const innerVolumes=innerRoot?await topVolumes(innerRoot,innerFits,'inner:'+innerItem?.template+':'+(selection.find(item=>item.category==='outer')?.template??'single')):[];
     if(outerRoot&&innerRoot&&outerVolumes.length){
       const mask=volumeShader(outerVolumes,'outerVolume',0);
-      applyVisibilityMask(innerRoot,mask.outside('maskWorld',.12*bodyConfig.width),mask.uniforms,mask.declarations);
+      applyVisibilityMask(innerRoot,mask.outermost('maskWorld',.12*bodyConfig.width,.27*bodyConfig.width),mask.uniforms,mask.declarations);
     }
     const legVolumes=bottomRoot?await cachedVolumes('bottom:'+selection.find(item=>item.category==='bottom')?.template,async()=>{
       const bounds=new THREE.Box3().setFromObject(bottomRoot),volumes:Volume[]=[];
@@ -737,6 +737,7 @@ export class ClosetScene {
     if(skinMasks.length){
       const cuts=skinMasks.map(m=>'('+m.outside('maskWorld',.12*bodyConfig.width)+')');
       if(footVolumes.length){const soles=skinMasks[skinMasks.length-1];cuts.push('('+soles.below('maskWorld',.08*bodyConfig.height)+')');}
+      if(outerVolumes.length){const outerMask=volumeShader(outerVolumes,'outermostSkin',0);cuts.push('('+outerMask.outermost('maskWorld',.12*bodyConfig.width,.27*bodyConfig.width)+')');skinMasks.push(outerMask);}
       const cutCondition=cuts.join(' || ');
       applyVisibilityMask(body,'!'+BODY_PROTECTION_GLSL+' && ('+cutCondition+')',Object.assign({},...skinMasks.map(m=>m.uniforms)),skinMasks.map(m=>m.declarations).join('\n'),true);
     }

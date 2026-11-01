@@ -121,7 +121,8 @@ bool ${name}Covered(vec3 p,float reach){vec4 s=${name}Sample(p);return s.z>=0.0&
  });
  const inside=(p:string)=>volumes.map((_,i)=>prefix+i+'Contains('+p+')').join(' || ')||'false';
  const covered=(p:string,reach:number)=>volumes.map((_,i)=>prefix+i+'Covered('+p+','+f(reach)+')').join(' || ')||'false';
- return {uniforms,declarations:functions.join('\n'),inside,covered,below:(p:string,depth:number)=>volumes.map((_,i)=>`(${prefix}${i}Sample(${p}).z<0.0 && ${prefix}${i}Sample(${p}).z>=-${f(depth)} && ${prefix}${i}Sample(${p}).w<=${prefix}${i}Sample(${p}).x)`).join(' || ')||'false',outside:(p:string,reach:number)=>'('+covered(p,reach)+') && !('+inside(p)+')'};
+ const outermost=(p:string,reach:number,torsoWidth:number)=>volumes.map((_,i)=>'('+ (i===0?'abs('+p+'.x)<'+f(torsoWidth)+' && ':'')+prefix+i+'Covered('+p+','+f(reach)+') && !'+prefix+i+'Contains('+p+'))').join(' || ')||'false';
+ return {outermost,uniforms,declarations:functions.join('\n'),inside,covered,below:(p:string,depth:number)=>volumes.map((_,i)=>`(${prefix}${i}Sample(${p}).z<0.0 && ${prefix}${i}Sample(${p}).z>=-${f(depth)} && ${prefix}${i}Sample(${p}).w<=${prefix}${i}Sample(${p}).x)`).join(' || ')||'false',outside:(p:string,reach:number)=>'('+covered(p,reach)+') && !('+inside(p)+')'};
 }
 export const BODY_PROTECTION_GLSL='((maskSource.y>=1.65 && abs(maskSource.x)<.17) || (maskSource.y>=1.55 && abs(maskSource.x)<.11) || (abs(maskSource.x)>=.76 && maskSource.y>1.30))';
 export function protectedBody(source:THREE.Vector3):boolean{return source.y>=1.65&&Math.abs(source.x)<.17||source.y>=1.55&&Math.abs(source.x)<.11||Math.abs(source.x)>=.76&&source.y>1.30;}
