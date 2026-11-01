@@ -676,8 +676,11 @@ export class ClosetScene {
       const result:Volume[]=torso?[torso]:[];
       if(fit)for(const [i,sleeve] of [fit.left,fit.right].entries()){
         if(!sleeve.valid)continue;
-        const end=sleeve.cuff.clone().addScaledVector(sleeve.direction,-.018*bodyConfig.height);
-        const volume=await this.volumeWorker.build(root,sleeve.shoulder,end,{kind:'sleeve',side:i?1:-1,shoulder:sleeve.shoulder.toArray(),direction:sleeve.direction.toArray(),minX:Math.abs(sleeve.shoulder.x)-.035*bodyConfig.width,radius:.14*bodyConfig.width});
+        // Include the sleeve cap behind the shoulder joint and the complete
+        // cuff. Actual cloth coverage still gates cuts at both open ends.
+        const start=sleeve.shoulder.clone().addScaledVector(sleeve.direction,-.06*bodyConfig.width);
+        const end=sleeve.cuff.clone();
+        const volume=await this.volumeWorker.build(root,start,end,{kind:'sleeve',side:i?1:-1,shoulder:sleeve.shoulder.toArray(),direction:sleeve.direction.toArray(),minX:Math.abs(sleeve.shoulder.x)-.075*bodyConfig.width,radius:.18*bodyConfig.width});
         if(volume)result.push(volume);
       }
       return result;
