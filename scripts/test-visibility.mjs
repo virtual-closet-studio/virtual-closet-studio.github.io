@@ -48,3 +48,7 @@ for(const side of [-1,1])for(const scale of [.75,1,1.35]){
  assert.ok(!beyondCuff(new THREE.Vector3(0,.5,0),boundary),'torso and hem are not sleeve excess');
  assert.ok(!beyondCuff(cuff.clone().addScaledVector(direction,.03*scale),{...boundary,valid:false}),'invalid sleeve fit cannot cut');
 }
+
+const vertical={shoulder:new THREE.Vector3(.24,1.48,0),cuff:new THREE.Vector3(.24,.98,0),direction:new THREE.Vector3(0,-1,0),valid:true};
+assert.ok(beyondCuff(new THREE.Vector3(.20,.96,0),vertical),'inward half of cuff ring is also trimmed');
+assert.ok(!beyondCuff(new THREE.Vector3(.24,.9,.2),vertical),'hip beyond cuff plane but away from sleeve axis is retained');

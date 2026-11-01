@@ -3,10 +3,15 @@ const f=(v:number)=>v.toFixed(7);
 const vec=(v:THREE.Vector3)=>`vec3(${f(v.x)},${f(v.y)},${f(v.z)})`;
 export type CuffBoundary={shoulder:THREE.Vector3;cuff:THREE.Vector3;direction:THREE.Vector3;valid:boolean};
 export function beyondCuff(p:THREE.Vector3,cuff:CuffBoundary):boolean {
- return cuff.valid && p.x*Math.sign(cuff.shoulder.x)>Math.abs(cuff.shoulder.x) && p.clone().sub(cuff.cuff).dot(cuff.direction)>0;
+ const delta=p.clone().sub(cuff.cuff),along=delta.dot(cuff.direction);
+ const radius=cuff.shoulder.distanceTo(cuff.cuff)*.28;
+ return cuff.valid && p.x*Math.sign(cuff.shoulder.x)>0 && along>0 && delta.addScaledVector(cuff.direction,-along).length()<radius;
 }
 export function cuffCutShader(cuffs:CuffBoundary[],point='maskWorld'):string {
- return cuffs.filter(c=>c.valid).map(c=>`(${point}.x*${f(Math.sign(c.shoulder.x))}>${f(Math.abs(c.shoulder.x))} && dot(${point}-${vec(c.cuff)},${vec(c.direction)})>0.0)`).join(' || ')||'false';
+ return cuffs.filter(c=>c.valid).map(c=>{
+  const delta=`(${point}-${vec(c.cuff)})`,along=`dot(${delta},${vec(c.direction)})`;
+  return `(${point}.x*${f(Math.sign(c.shoulder.x))}>0.0 && ${along}>0.0 && length(${delta}-${vec(c.direction)}*${along})<${f(c.shoulder.distanceTo(c.cuff)*.28)})`;
+ }).join(' || ')||'false';
 }
 export type Volume={origin:THREE.Vector3;axis:THREE.Vector3;u:THREE.Vector3;v:THREE.Vector3;length:number;radii:Float32Array;coverage:Float32Array;texture:THREE.DataTexture};
 const angles=128, rows=128;

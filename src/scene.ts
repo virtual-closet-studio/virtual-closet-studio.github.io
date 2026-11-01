@@ -710,7 +710,9 @@ export class ClosetScene {
     // Each outer garment gets its own cut. Being inside trousers cannot exempt
     // skin (or the trousers themselves) from protruding through a hoodie.
     if(bottomRoot){
-      const topMasks=[innerVolumes,outerVolumes].filter(v=>v.length).map((v,i)=>volumeShader(v,'waistVolume'+i,0));
+      // Sleeves beside the hips do not cover trousers. Only the torso/hem
+      // surface determines which layer owns the waist overlap.
+      const topMasks=[innerVolumes,outerVolumes].filter(v=>v.length).map((v,i)=>volumeShader(v.slice(0,1),'waistVolume'+i,0));
       if(topMasks.length)applyVisibilityMask(bottomRoot,topMasks.map(m=>'('+m.outside('maskWorld',.12*bodyConfig.width)+')').join(' || '),Object.assign({},...topMasks.map(m=>m.uniforms)),topMasks.map(m=>m.declarations).join('\n'));
     }
     if(shoeRoot&&legVolumes.length){
