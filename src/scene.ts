@@ -735,8 +735,10 @@ export class ClosetScene {
     });
     const skinMasks=[innerVolumes,outerVolumes,legVolumes,footVolumes].filter(v=>v.length).map((v,i)=>volumeShader(v,'skinLayer'+i,0));
     if(skinMasks.length){
-      const cuts=skinMasks.map(m=>'('+m.outside('maskWorld',.12*bodyConfig.width)+')').join(' || ');
-      applyVisibilityMask(body,'!'+BODY_PROTECTION_GLSL+' && ('+cuts+')',Object.assign({},...skinMasks.map(m=>m.uniforms)),skinMasks.map(m=>m.declarations).join('\n'),true);
+      const cuts=skinMasks.map(m=>'('+m.outside('maskWorld',.12*bodyConfig.width)+')');
+      if(footVolumes.length){const soles=skinMasks[skinMasks.length-1];cuts.push('('+soles.below('maskWorld',.08*bodyConfig.height)+')');}
+      const cutCondition=cuts.join(' || ');
+      applyVisibilityMask(body,'!'+BODY_PROTECTION_GLSL+' && ('+cutCondition+')',Object.assign({},...skinMasks.map(m=>m.uniforms)),skinMasks.map(m=>m.declarations).join('\n'),true);
     }
     mannequin.add(body);
     if(this.disposed||revision!==this.revision)return;

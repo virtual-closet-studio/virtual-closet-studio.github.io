@@ -34,3 +34,5 @@ for(const y of [1.55,1.58,1.65,1.8])assert.ok(protectedBody(new THREE.Vector3(.1
 assert.ok(protectedBody(new THREE.Vector3(.8,1.45,0)),'hands protected');
 assert.ok(!protectedBody(new THREE.Vector3(.2,1.45,0)),'torso protrusions remain eligible');
 console.log('PASS: retained interiors, closed invisible fitting envelope, exterior-only cuts, protected neck/chin/head/hands and source immutability');
+
+assert.ok(!protectedBody(new THREE.Vector3(.15,1.58,0)), 'shoulder beside neck remains eligible for clipping');

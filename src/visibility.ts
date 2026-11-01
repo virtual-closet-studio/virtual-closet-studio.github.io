@@ -121,10 +121,10 @@ bool ${name}Covered(vec3 p,float reach){vec4 s=${name}Sample(p);return s.z>=0.0&
  });
  const inside=(p:string)=>volumes.map((_,i)=>prefix+i+'Contains('+p+')').join(' || ')||'false';
  const covered=(p:string,reach:number)=>volumes.map((_,i)=>prefix+i+'Covered('+p+','+f(reach)+')').join(' || ')||'false';
- return {uniforms,declarations:functions.join('\n'),inside,covered,outside:(p:string,reach:number)=>'('+covered(p,reach)+') && !('+inside(p)+')'};
+ return {uniforms,declarations:functions.join('\n'),inside,covered,below:(p:string,depth:number)=>volumes.map((_,i)=>`(${prefix}${i}Sample(${p}).z<0.0 && ${prefix}${i}Sample(${p}).z>=-${f(depth)} && ${prefix}${i}Sample(${p}).w<=${prefix}${i}Sample(${p}).x)`).join(' || ')||'false',outside:(p:string,reach:number)=>'('+covered(p,reach)+') && !('+inside(p)+')'};
 }
-export const BODY_PROTECTION_GLSL='((maskSource.y>=1.55 && abs(maskSource.x)<.17) || (abs(maskSource.x)>=.76 && maskSource.y>1.30))';
-export function protectedBody(source:THREE.Vector3):boolean{return source.y>=1.55&&Math.abs(source.x)<.17||Math.abs(source.x)>=.76&&source.y>1.30;}
+export const BODY_PROTECTION_GLSL='((maskSource.y>=1.65 && abs(maskSource.x)<.17) || (maskSource.y>=1.55 && abs(maskSource.x)<.11) || (abs(maskSource.x)>=.76 && maskSource.y>1.30))';
+export function protectedBody(source:THREE.Vector3):boolean{return source.y>=1.65&&Math.abs(source.x)<.17||source.y>=1.55&&Math.abs(source.x)<.11||Math.abs(source.x)>=.76&&source.y>1.30;}
 export function applyVisibilityMask(root:THREE.Object3D,condition:string,uniforms:Record<string,{value:unknown}>={},declarations='',bodySource=false):void{
  root.traverse(object=>{
   if(!(object instanceof THREE.Mesh))return;
