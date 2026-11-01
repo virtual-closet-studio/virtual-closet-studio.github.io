@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { applyVisibilityMask, volumeShader, BODY_PROTECTION_GLSL, type Volume } from './visibility';
+import { applyVisibilityMask, volumeShader, cuffCutShader, BODY_PROTECTION_GLSL, type Volume } from './visibility';
 import { VolumeWorker } from './volume-client';
 import type { Body, Garment } from './types';
 import { applyPhotoDesign, disposePhotoMaterial } from './photo-material';
@@ -690,7 +690,8 @@ export class ClosetScene {
     const innerVolumes=innerRoot?await topVolumes(innerRoot,innerFits,'inner:'+innerItem?.template+':'+(selection.find(item=>item.category==='outer')?.template??'single')):[];
     if(outerRoot&&innerRoot&&outerVolumes.length){
       const mask=volumeShader(outerVolumes,'outerVolume',0);
-      applyVisibilityMask(innerRoot,mask.outermost('maskWorld',.12*bodyConfig.width,.27*bodyConfig.width),mask.uniforms,mask.declarations);
+      const excessSleeves=sleeves?cuffCutShader([sleeves.left,sleeves.right]):'false';
+      applyVisibilityMask(innerRoot,`(${mask.outermost('maskWorld',.12*bodyConfig.width,.27*bodyConfig.width)}) || (${excessSleeves})`,mask.uniforms,mask.declarations);
     }
     const legVolumes=bottomRoot?await cachedVolumes('bottom:'+selection.find(item=>item.category==='bottom')?.template,async()=>{
       const bounds=new THREE.Box3().setFromObject(bottomRoot),volumes:Volume[]=[];

@@ -1,6 +1,13 @@
 import * as THREE from 'three';
 const f=(v:number)=>v.toFixed(7);
 const vec=(v:THREE.Vector3)=>`vec3(${f(v.x)},${f(v.y)},${f(v.z)})`;
+export type CuffBoundary={shoulder:THREE.Vector3;cuff:THREE.Vector3;direction:THREE.Vector3;valid:boolean};
+export function beyondCuff(p:THREE.Vector3,cuff:CuffBoundary):boolean {
+ return cuff.valid && p.x*Math.sign(cuff.shoulder.x)>Math.abs(cuff.shoulder.x) && p.clone().sub(cuff.cuff).dot(cuff.direction)>0;
+}
+export function cuffCutShader(cuffs:CuffBoundary[],point='maskWorld'):string {
+ return cuffs.filter(c=>c.valid).map(c=>`(${point}.x*${f(Math.sign(c.shoulder.x))}>${f(Math.abs(c.shoulder.x))} && dot(${point}-${vec(c.cuff)},${vec(c.direction)})>0.0)`).join(' || ')||'false';
+}
 export type Volume={origin:THREE.Vector3;axis:THREE.Vector3;u:THREE.Vector3;v:THREE.Vector3;length:number;radii:Float32Array;coverage:Float32Array;texture:THREE.DataTexture};
 const angles=128, rows=128;
 const cosines=Float64Array.from({length:angles},(_,i)=>Math.cos(i/angles*Math.PI*2));

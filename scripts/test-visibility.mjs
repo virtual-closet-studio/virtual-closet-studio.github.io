@@ -36,3 +36,15 @@ assert.ok(!protectedBody(new THREE.Vector3(.2,1.45,0)),'torso protrusions remain
 console.log('PASS: retained interiors, closed invisible fitting envelope, exterior-only cuts, protected neck/chin/head/hands and source immutability');
 
 assert.ok(!protectedBody(new THREE.Vector3(.15,1.58,0)), 'shoulder beside neck remains eligible for clipping');
+
+const {beyondCuff}=await import('../.cache/visibility-test.mjs');
+for(const side of [-1,1])for(const scale of [.75,1,1.35]){
+ const direction=new THREE.Vector3(side*.6,-.8,0);
+ const shoulder=new THREE.Vector3(side*.24,1.48,0).multiplyScalar(scale);
+ const cuff=shoulder.clone().addScaledVector(direction,.5*scale);
+ const boundary={shoulder,cuff,direction,valid:true};
+ assert.ok(beyondCuff(cuff.clone().addScaledVector(direction,.03*scale),boundary),'excess inner sleeve beyond outer cuff is cut');
+ assert.ok(!beyondCuff(cuff.clone().addScaledVector(direction,-.03*scale),boundary),'inner sleeve inside outer cuff remains');
+ assert.ok(!beyondCuff(new THREE.Vector3(0,.5,0),boundary),'torso and hem are not sleeve excess');
+ assert.ok(!beyondCuff(cuff.clone().addScaledVector(direction,.03*scale),{...boundary,valid:false}),'invalid sleeve fit cannot cut');
+}
