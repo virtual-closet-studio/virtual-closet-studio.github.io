@@ -50,6 +50,17 @@ export function fittingVolume(root:THREE.Object3D,origin:THREE.Vector3,end:THREE
  // Keep actual cloth coverage separate from the closed containment envelope.
  // Filling an open jacket front must never make that opening eligible for cuts.
  const coverage=Float32Array.from(radii,r=>r>0?1:0);
+ // Triangle seams can leave isolated empty samples. Close only tiny gaps
+ // surrounded by cloth; broad front openings and open cuffs remain uncovered.
+ for(let pass=0;pass<2;pass++){
+  const previous=coverage.slice();
+  for(let row=1;row<rows-1;row++)for(let col=0;col<angles;col++){
+   const cell=row*angles+col;if(previous[cell])continue;
+   let neighbors=0;
+   for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++)if(dx||dy)neighbors+=previous[(row+dy)*angles+(col+dx+angles)%angles];
+   if(neighbors>=5)coverage[cell]=1;
+  }
+ }
  // Bridge open collars, cuffs and jacket fronts in the invisible volume.
  for(let row=0;row<rows;row++){
   const base=row*angles,original=radii.slice(base,base+angles);
@@ -85,7 +96,7 @@ export function volumeCovered(volume:Volume,p:THREE.Vector3,reach:number):boolea
  const y=t/volume.length*(rows-1),x=angle*angles,row=Math.floor(y),col=Math.floor(x)%angles,dy=y-row,dx=x-Math.floor(x);
  const sample=(data:Float32Array,r:number,c:number)=>data[Math.min(rows-1,r)*angles+c%angles];
  const blend=(data:Float32Array)=>(sample(data,row,col)*(1-dx)+sample(data,row,col+1)*dx)*(1-dy)+(sample(data,row+1,col)*(1-dx)+sample(data,row+1,col+1)*dx)*dy;
- return blend(volume.coverage)>.5&&Math.hypot(d.dot(volume.u),d.dot(volume.v))<=blend(volume.radii)+reach;
+ return blend(volume.coverage)>.01&&Math.hypot(d.dot(volume.u),d.dot(volume.v))<=blend(volume.radii)+reach;
 }
 export function protrudes(volumes:Volume[],p:THREE.Vector3,reach:number):boolean {
  return volumes.some(v=>volumeCovered(v,p,reach))&&!volumes.some(v=>volumeContains(v,p));
@@ -105,7 +116,7 @@ vec4 ${name}Sample(vec3 p){
  return vec4(mix(r0,r1,blend.y),t,length(vec2(dot(d,${vec(volume.u)}),dot(d,${vec(volume.v)}))));
 }
 bool ${name}Contains(vec3 p){vec4 s=${name}Sample(p);return s.z>=0.0&&s.z<=${f(volume.length)}&&s.w<=s.x+${f(tolerance)};}
-bool ${name}Covered(vec3 p,float reach){vec4 s=${name}Sample(p);return s.z>=0.0&&s.z<=${f(volume.length)}&&s.y>.5&&s.w<=s.x+reach;}
+bool ${name}Covered(vec3 p,float reach){vec4 s=${name}Sample(p);return s.z>=0.0&&s.z<=${f(volume.length)}&&s.y>.01&&s.w<=s.x+reach;}
 `);
  });
  const inside=(p:string)=>volumes.map((_,i)=>prefix+i+'Contains('+p+')').join(' || ')||'false';
