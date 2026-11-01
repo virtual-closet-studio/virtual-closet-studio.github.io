@@ -52,3 +52,10 @@ for(const side of [-1,1])for(const scale of [.75,1,1.35]){
 const vertical={shoulder:new THREE.Vector3(.24,1.48,0),cuff:new THREE.Vector3(.24,.98,0),direction:new THREE.Vector3(0,-1,0),valid:true};
 assert.ok(beyondCuff(new THREE.Vector3(.20,.96,0),vertical),'inward half of cuff ring is also trimmed');
 assert.ok(!beyondCuff(new THREE.Vector3(.24,.9,.2),vertical),'hip beyond cuff plane but away from sleeve axis is retained');
+
+const shells=new THREE.Group();
+for(const radius of [.18,.22]){const mesh=new THREE.Mesh(new THREE.CylinderGeometry(radius,radius,1,64,32,true));mesh.position.y=.5;shells.add(mesh);}
+const surface=fittingVolume(shells,new THREE.Vector3(),new THREE.Vector3(0,1,0));
+assert.ok(volumeContains(surface,new THREE.Vector3(.20,.5,0)),'inner lining cannot overcut a point beneath the outer fabric surface');
+assert.ok(protrudes([surface],new THREE.Vector3(.24,.5,0),.12),'point beyond outer fabric still clips');
+surface.texture.dispose();

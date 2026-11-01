@@ -2,6 +2,12 @@ import * as THREE from 'three';
 const f=(v:number)=>v.toFixed(7);
 const vec=(v:THREE.Vector3)=>`vec3(${f(v.x)},${f(v.y)},${f(v.z)})`;
 export type CuffBoundary={shoulder:THREE.Vector3;cuff:THREE.Vector3;direction:THREE.Vector3;valid:boolean};
+export function innerSleeveCutShader(cuffs:CuffBoundary[],point='maskWorld'):string {
+ return cuffs.filter(c=>c.valid).map(c=>{
+  const delta=`(${point}-${vec(c.shoulder)})`,along=`dot(${delta},${vec(c.direction)})`;
+  return `(${point}.x*${f(Math.sign(c.shoulder.x))}>${f(Math.abs(c.shoulder.x))} && ${along}>0.0 && length(${delta}-${vec(c.direction)}*${along})<${f(c.shoulder.distanceTo(c.cuff)*.4)})`;
+ }).join(' || ')||'false';
+}
 export function beyondCuff(p:THREE.Vector3,cuff:CuffBoundary):boolean {
  const delta=p.clone().sub(cuff.cuff),along=delta.dot(cuff.direction);
  const radius=cuff.shoulder.distanceTo(cuff.cuff)*.28;
@@ -53,7 +59,7 @@ export function fittingVolume(root:THREE.Object3D,origin:THREE.Vector3,end:THREE
      const r=(ax*dy-ay*dx)/den,w=(ax*ry-ay*rx)/den;
      if(r<=0||w<0||w>1)continue;
      candidate.copy(origin).addScaledVector(axis,level).addScaledVector(u,rx*r).addScaledVector(v,ry*r);
-     if(accept(candidate)){const cell=row*angles+col;radii[cell]=radii[cell]>0?Math.min(radii[cell],r):r;}
+     if(accept(candidate)){const cell=row*angles+col;radii[cell]=Math.max(radii[cell],r);}
     }
    }
   }
