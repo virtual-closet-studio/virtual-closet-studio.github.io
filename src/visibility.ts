@@ -26,7 +26,7 @@ const sines=Float64Array.from({length:angles},(_,i)=>Math.sin(i/angles*Math.PI*2
 
 // Cross-sections close only the fitting envelope, never the visible garment.
 // Each radial intersection is taken from fitted triangles, independent of camera.
-export function fittingVolume(root:THREE.Object3D,origin:THREE.Vector3,end:THREE.Vector3,accept:(p:THREE.Vector3)=>boolean=()=>true):Volume|undefined {
+export function fittingVolume(root:THREE.Object3D,origin:THREE.Vector3,end:THREE.Vector3,accept:(p:THREE.Vector3)=>boolean=()=>true,nearest=false):Volume|undefined {
  const axis=end.clone().sub(origin),length=axis.length();if(length<1e-5)return;
  axis.normalize();const u=new THREE.Vector3(1,0,0).addScaledVector(axis,-axis.x).normalize();
  if(u.lengthSq()<.1)u.set(0,0,1).addScaledVector(axis,-axis.z).normalize();
@@ -59,7 +59,7 @@ export function fittingVolume(root:THREE.Object3D,origin:THREE.Vector3,end:THREE
      const r=(ax*dy-ay*dx)/den,w=(ax*ry-ay*rx)/den;
      if(r<=0||w<0||w>1)continue;
      candidate.copy(origin).addScaledVector(axis,level).addScaledVector(u,rx*r).addScaledVector(v,ry*r);
-     if(accept(candidate)){const cell=row*angles+col;radii[cell]=Math.max(radii[cell],r);}
+     if(accept(candidate)){const cell=row*angles+col;radii[cell]=nearest&&radii[cell]>0?Math.min(radii[cell],r):Math.max(radii[cell],r);}
     }
    }
   }
@@ -92,6 +92,25 @@ export function fittingVolume(root:THREE.Object3D,origin:THREE.Vector3,end:THREE
   let nearest=-1;for(let delta=1;delta<rows;delta++){if(row-delta>=0&&radii[(row-delta)*angles]){nearest=row-delta;break;}if(row+delta<rows&&radii[(row+delta)*angles]){nearest=row+delta;break;}}
   if(nearest>=0)radii.set(radii.slice(nearest*angles,(nearest+1)*angles),row*angles);
  }
+ // Preserve the local hem/cuff contour. Filling angular holes alone otherwise
+ // extends a higher back hem down to the lowest front hem, retaining a ring of
+ // inner fabric below the jacket. Broad openings are bridged from nearby rims.
+ if(nearest){
+  const lows=new Float32Array(angles).fill(-1),highs=new Float32Array(angles).fill(-1);
+  for(let col=0;col<angles;col++){
+   for(let row=0;row<rows;row++)if(coverage[row*angles+col]){if(row<rows*.25)lows[col]=row;break;}
+   for(let row=rows-1;row>=0;row--)if(coverage[row*angles+col]){if(row>rows*.75)highs[col]=row;break;}
+  }
+  const bridge=(values:Float32Array,fallback:number)=>{
+   const original=values.slice();
+   for(let col=0;col<angles;col++)if(original[col]<0){
+    let left=1,right=1;while(left<angles&&original[(col-left+angles)%angles]<0)left++;while(right<angles&&original[(col+right)%angles]<0)right++;
+    values[col]=left===angles?fallback:(original[(col-left+angles)%angles]*right+original[(col+right)%angles]*left)/(left+right);
+   }
+  };
+  bridge(lows,0);bridge(highs,rows-1);
+  for(let row=0;row<rows;row++)for(let col=0;col<angles;col++)if(row<lows[col]||row>highs[col])radii[row*angles+col]=0;
+ }
  const texture=volumeTexture(radii,coverage);
  return {origin:origin.clone(),axis,u,v,length,radii,coverage,texture};
 }
@@ -100,12 +119,12 @@ export function volumeTexture(radii:Float32Array,coverage:Float32Array):THREE.Da
  const texture=new THREE.DataTexture(data,angles,rows,THREE.RGFormat,THREE.FloatType);texture.wrapS=THREE.RepeatWrapping;texture.minFilter=texture.magFilter=THREE.NearestFilter;texture.needsUpdate=true;return texture;
 }
 export function volumeContains(volume:Volume,p:THREE.Vector3,tolerance=0):boolean{
- const d=p.clone().sub(volume.origin),t=d.dot(volume.axis);if(t<0||t>volume.length)return false;
+ const d=p.clone().sub(volume.origin),t=d.dot(volume.axis);if(t<Math.max(0,-tolerance)||t>volume.length-Math.max(0,-tolerance))return false;
  let angle=Math.atan2(d.dot(volume.v),d.dot(volume.u))/(2*Math.PI);if(angle<0)angle+=1;
  const y=t/volume.length*(rows-1),x=angle*angles,row=Math.floor(y),col=Math.floor(x)%angles,dy=y-row,dx=x-Math.floor(x);
  const sample=(r:number,c:number)=>volume.radii[Math.min(rows-1,r)*angles+c%angles];
  const r0=sample(row,col)*(1-dx)+sample(row,col+1)*dx,r1=sample(row+1,col)*(1-dx)+sample(row+1,col+1)*dx;
- return Math.hypot(d.dot(volume.u),d.dot(volume.v))<=r0*(1-dy)+r1*dy+tolerance;
+ return Math.hypot(d.dot(volume.u),d.dot(volume.v))<r0*(1-dy)+r1*dy+tolerance;
 }
 /** Only cloth-covered, nearby exterior points are protrusions; open ends stay intact. */
 export function volumeCovered(volume:Volume,p:THREE.Vector3,reach:number):boolean {
@@ -133,14 +152,15 @@ vec4 ${name}Sample(vec3 p){
  vec2 r1=mix(texture2D(${name},uv+vec2(0.0,0.0078125)).rg,texture2D(${name},uv+vec2(0.0078125)).rg,blend.x);
  return vec4(mix(r0,r1,blend.y),t,length(vec2(dot(d,${vec(volume.u)}),dot(d,${vec(volume.v)}))));
 }
-bool ${name}Contains(vec3 p){vec4 s=${name}Sample(p);return s.z>=0.0&&s.z<=${f(volume.length)}&&s.w<=s.x+${f(tolerance)};}
+vec3 ${name}Surface(vec3 p){vec3 origin=${vec(volume.origin)};vec3 axis=${vec(volume.axis)};vec3 d=p-origin;float t=dot(d,axis);vec3 radial=d-axis*t;return origin+axis*t+normalize(radial)*${name}Sample(p).x;}
+bool ${name}Contains(vec3 p){vec4 s=${name}Sample(p);return s.z>=${f(Math.max(0,-tolerance))}&&s.z<=${f(volume.length-Math.max(0,-tolerance))}&&s.w<s.x+${f(tolerance)};}
 bool ${name}Covered(vec3 p,float reach){vec4 s=${name}Sample(p);return s.z>=0.0&&s.z<=${f(volume.length)}&&s.y>.01&&s.w<=s.x+reach;}
 `);
  });
- const inside=(p:string)=>volumes.map((_,i)=>prefix+i+'Contains('+p+')').join(' || ')||'false';
+ const inside=(p:string,torsoWidth=0)=>volumes.map((_,i)=>(i&&torsoWidth?'(abs('+p+'.x)>'+f(torsoWidth)+' && '+prefix+i+'Contains('+p+'))':prefix+i+'Contains('+p+')')).join(' || ')||'false';
  const covered=(p:string,reach:number)=>volumes.map((_,i)=>prefix+i+'Covered('+p+','+f(reach)+')').join(' || ')||'false';
  const outermost=(p:string,reach:number,torsoWidth:number)=>volumes.map((_,i)=>'('+ (i===0?'abs('+p+'.x)<'+f(torsoWidth)+' && ':'')+prefix+i+'Covered('+p+','+f(reach)+') && !'+prefix+i+'Contains('+p+'))').join(' || ')||'false';
- return {outermost,uniforms,declarations:functions.join('\n'),inside,covered,below:(p:string,depth:number)=>volumes.map((_,i)=>`(${prefix}${i}Sample(${p}).z<0.0 && ${prefix}${i}Sample(${p}).z>=-${f(depth)} && ${prefix}${i}Sample(${p}).w<=${prefix}${i}Sample(${p}).x)`).join(' || ')||'false',outside:(p:string,reach:number)=>'('+covered(p,reach)+') && !('+inside(p)+')'};
+ return {surface:(p:string,i=0)=>prefix+i+'Surface('+p+')',outermost,uniforms,declarations:functions.join('\n'),inside,covered,below:(p:string,depth:number)=>volumes.map((_,i)=>`(${prefix}${i}Sample(${p}).z<0.0 && ${prefix}${i}Sample(${p}).z>=-${f(depth)} && ${prefix}${i}Sample(${p}).w<=${prefix}${i}Sample(${p}).x)`).join(' || ')||'false',outside:(p:string,reach:number)=>'('+covered(p,reach)+') && !('+inside(p)+')'};
 }
 export const BODY_PROTECTION_GLSL='((maskSource.y>=1.65 && abs(maskSource.x)<.17) || (maskSource.y>=1.55 && abs(maskSource.x)<.11) || (abs(maskSource.x)>=.76 && maskSource.y>1.30))';
 export function protectedBody(source:THREE.Vector3):boolean{return source.y>=1.65&&Math.abs(source.x)<.17||source.y>=1.55&&Math.abs(source.x)<.11||Math.abs(source.x)>=.76&&source.y>1.30;}

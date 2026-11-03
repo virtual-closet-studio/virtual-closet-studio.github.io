@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-export type Filter={kind:'torso';width:number}|{kind:'side';side:number}|{kind:'sleeve';side:number;shoulder:number[];direction:number[];minX:number;radius:number};
+export type Filter={nearest?:boolean}&({kind:'torso';width:number}|{kind:'side';side:number}|{kind:'sleeve';side:number;shoulder:number[];direction:number[];minX:number;radius:number});
 export type VolumeJob={positions:Float64Array;origin:[number,number,number];end:[number,number,number];filter:Filter};
 export function accepts(filter:Filter,p:THREE.Vector3):boolean{
  if(filter.kind==='torso')return Math.abs(p.x)<filter.width;

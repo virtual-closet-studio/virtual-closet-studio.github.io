@@ -24,7 +24,7 @@ let builds=0,disposals=0;
 const scene=Object.create(ClosetScene.prototype);
 Object.assign(scene,{models,modelRequests:new Map(Object.entries(models).map(([k,v])=>[k,Promise.resolve(v)])),revision:0,building:false,disposed:false,prepared:new Map(),fitted:new Map(),appearance:'',currentKey:'',volumeBuilds:0,modelLoads:0,volumeCache:new Map(),generatedTextures:[],body:{width:1,height:1},fit:{width:1.08,height:1,outerWidth:1.18,depth:.05},selected:[],scene:new THREE.Scene(),mannequin:new THREE.Group(),clothing:new THREE.Group(),host:{dataset:{},append(){}},loadingLabel:{remove(){},replaceChildren(){throw new Error('Unexpected rendering failure');}},prefetchStarted:true});
 scene.setView=()=>{};
-scene.volumeWorker={async build(root,origin,end,filter){builds++;await new Promise(r=>setTimeout(r,0));const volume=fittingVolume(root,origin,end,p=>accepts(filter,p));if(volume)volume.texture.addEventListener('dispose',()=>disposals++);return volume;}};
+scene.volumeWorker={async build(root,origin,end,filter){builds++;await new Promise(r=>setTimeout(r,0));const volume=fittingVolume(root,origin,end,p=>accepts(filter,p),filter.nearest);if(volume)volume.texture.addEventListener('dispose',()=>disposals++);return volume;}};
 const garment=(template,category,color='#777777')=>({id:template,template,category,color,pattern:'solid',name:template});
 const tee=garment('tee','top'),shirt=garment('shirt','top'),hoodie=garment('jacket','top'),outer=garment('blazer','outer'),pants=garment('pants','bottom'),cargo=garment('cargo','bottom'),boots=garment('boots','shoes'),sneakers=garment('sneakers','shoes');
 async function settled(){while(scene.building)await new Promise(r=>setTimeout(r,2));}
@@ -47,7 +47,7 @@ for(const root of [scene.mannequin,...scene.clothing.children])root.traverse(mes
  mesh.material.onBeforeCompile(shader,{});
  if(root===scene.mannequin)assert.match(shader.fragmentShader,/skinLayer0[0-9]Covered[\s\S]*skinLayer1[0-9]Covered/,'skin is checked against each layer independently');
  if(root.userData.category==='bottom')assert.match(shader.fragmentShader,/waistVolume[\s\S]*Covered/,'trouser waistband is clipped by tops');
- if(root.userData.category==='top')assert.match(shader.fragmentShader,/outerVolume[\s\S]*Covered/,'inner clothing cuts require actual outer coverage');
+ if(root.userData.category==='top')assert.match(shader.fragmentShader,/outerVolume[\s\S]*Contains/,'inner clothing is restricted to the closed outer envelope');
 });
 for(let i=0;i<10;i++)await wear([cargo,shirt,outer,sneakers],{width:.8+i*.03,height:1});
 assert.ok(disposals>0,'evicted unreferenced volume textures are released');

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { applyVisibilityMask, volumeShader, innerSleeveCutShader, BODY_PROTECTION_GLSL, type Volume } from './visibility';
+import { applyVisibilityMask, volumeShader, BODY_PROTECTION_GLSL, type Volume } from './visibility';
 import { VolumeWorker } from './volume-client';
 import type { Body, Garment } from './types';
 import { applyPhotoDesign, disposePhotoMaterial } from './photo-material';
@@ -672,15 +672,15 @@ export class ClosetScene {
       const neck=sectionBounds(root,1.45*bodyConfig.height,1.8*bodyConfig.height,.10*bodyConfig.width);
       const top=Math.min(neck?.max.y??bounds.max.y,1.64*bodyConfig.height);
       const hem=sectionBounds(root,bounds.min.y,1.3*bodyConfig.height,.18*bodyConfig.width)?.min.y??bounds.min.y;
-      const torso=await this.volumeWorker.build(root,new THREE.Vector3(0,hem,z),new THREE.Vector3(0,top,z),{kind:'torso',width});
+      const torso=await this.volumeWorker.build(root,new THREE.Vector3(0,hem,z),new THREE.Vector3(0,top,z),{kind:'torso',width,nearest:root===outerRoot});
       const result:Volume[]=torso?[torso]:[];
       if(fit)for(const [i,sleeve] of [fit.left,fit.right].entries()){
         if(!sleeve.valid)continue;
         // Include the sleeve cap behind the shoulder joint and the complete
         // cuff. Actual cloth coverage still gates cuts at both open ends.
         const start=sleeve.shoulder.clone().addScaledVector(sleeve.direction,-.06*bodyConfig.width);
-        const end=sleeve.cuff.clone();
-        const volume=await this.volumeWorker.build(root,start,end,{kind:'sleeve',side:i?1:-1,shoulder:sleeve.shoulder.toArray(),direction:sleeve.direction.toArray(),minX:Math.abs(sleeve.shoulder.x)-.075*bodyConfig.width,radius:.18*bodyConfig.width});
+        const end=sleeve.cuff.clone().addScaledVector(sleeve.direction,-.018*bodyConfig.height);
+        const volume=await this.volumeWorker.build(root,start,end,{kind:'sleeve',side:i?1:-1,shoulder:sleeve.shoulder.toArray(),direction:sleeve.direction.toArray(),minX:Math.abs(sleeve.shoulder.x)-.075*bodyConfig.width,radius:.18*bodyConfig.width,nearest:root===outerRoot});
         if(volume)result.push(volume);
       }
       return result;
@@ -689,9 +689,8 @@ export class ClosetScene {
     const innerFits=innerRoot?garmentSleeves(innerRoot,bodyConfig,landmarks,innerItem?.template!=='tee'):undefined;
     const innerVolumes=innerRoot?await topVolumes(innerRoot,innerFits,'inner:'+innerItem?.template+':'+(selection.find(item=>item.category==='outer')?.template??'single')):[];
     if(outerRoot&&innerRoot&&outerVolumes.length){
-      const mask=volumeShader(outerVolumes,'outerVolume',0);
-      const hiddenSleeves=innerFits?innerSleeveCutShader([innerFits.left,innerFits.right]):'false';
-      applyVisibilityMask(innerRoot,`(${mask.outside('maskWorld',.12*bodyConfig.width)}) || (${hiddenSleeves})`,mask.uniforms,mask.declarations);
+      const mask=volumeShader(outerVolumes,'outerVolume',-.003*bodyConfig.width);
+      applyVisibilityMask(innerRoot,`!(${mask.inside('maskWorld',.26*bodyConfig.width)})`,mask.uniforms,mask.declarations);
     }
     const legVolumes=bottomRoot?await cachedVolumes('bottom:'+selection.find(item=>item.category==='bottom')?.template,async()=>{
       const bounds=new THREE.Box3().setFromObject(bottomRoot),volumes:Volume[]=[];
@@ -712,8 +711,11 @@ export class ClosetScene {
     if(bottomRoot){
       // Sleeves beside the hips do not cover trousers. Only the torso/hem
       // surface determines which layer owns the waist overlap.
-      const topMasks=[innerVolumes,outerVolumes].filter(v=>v.length).map((v,i)=>volumeShader(v.slice(0,1),'waistVolume'+i,0));
-      if(topMasks.length)applyVisibilityMask(bottomRoot,topMasks.map(m=>'('+m.outside('maskWorld',.12*bodyConfig.width)+')').join(' || '),Object.assign({},...topMasks.map(m=>m.uniforms)),topMasks.map(m=>m.declarations).join('\n'));
+      const topMasks=[innerVolumes,outerVolumes].filter(v=>v.length).map((v,i)=>volumeShader(v.slice(0,1),'waistVolume'+i,-.003*bodyConfig.width));
+      const envelope=outerVolumes.length?volumeShader(outerVolumes,'waistEnvelope',-.003*bodyConfig.width):undefined;
+      const cuts=topMasks.map((m,i)=>'('+m.outside('maskWorld',.12*bodyConfig.width)+(i===0&&innerVolumes.length&&envelope?' && ('+envelope.inside(m.surface('maskWorld'),.26*bodyConfig.width)+')':'')+')');
+      const declarations=[...topMasks,...(envelope?[envelope]:[])];
+      if(cuts.length)applyVisibilityMask(bottomRoot,cuts.join(' || '),Object.assign({},...declarations.map(m=>m.uniforms)),declarations.map(m=>m.declarations).join('\n'));
     }
     if(shoeRoot&&legVolumes.length){
       const mask=volumeShader(legVolumes,'legVolume',0);
@@ -739,11 +741,10 @@ export class ClosetScene {
       const mat = new THREE.MeshStandardMaterial({ color: '#d5b4a1', roughness: .92, side: THREE.DoubleSide });
       object.material = mat;
     });
-    const skinMasks=[innerVolumes,outerVolumes,legVolumes,footVolumes].filter(v=>v.length).map((v,i)=>volumeShader(v,'skinLayer'+i,0));
+    const skinMasks=[innerVolumes,outerVolumes,legVolumes,footVolumes].filter(v=>v.length).map((v,i)=>volumeShader(v,'skinLayer'+i,v===outerVolumes?-.003*bodyConfig.width:0));
     if(skinMasks.length){
       const cuts=skinMasks.map(m=>'('+m.outside('maskWorld',.12*bodyConfig.width)+')');
       if(footVolumes.length){const soles=skinMasks[skinMasks.length-1];cuts.push('('+soles.below('maskWorld',.08*bodyConfig.height)+')');}
-      if(outerVolumes.length){const outerMask=volumeShader(outerVolumes,'outermostSkin',0);cuts.push('('+outerMask.outermost('maskWorld',.12*bodyConfig.width,.27*bodyConfig.width)+')');skinMasks.push(outerMask);}
       const cutCondition=cuts.join(' || ');
       applyVisibilityMask(body,'!'+BODY_PROTECTION_GLSL+' && ('+cutCondition+')',Object.assign({},...skinMasks.map(m=>m.uniforms)),skinMasks.map(m=>m.declarations).join('\n'),true);
     }

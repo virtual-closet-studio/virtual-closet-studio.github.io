@@ -59,3 +59,22 @@ const surface=fittingVolume(shells,new THREE.Vector3(),new THREE.Vector3(0,1,0))
 assert.ok(volumeContains(surface,new THREE.Vector3(.20,.5,0)),'inner lining cannot overcut a point beneath the outer fabric surface');
 assert.ok(protrudes([surface],new THREE.Vector3(.24,.5,0),.12),'point beyond outer fabric still clips');
 surface.texture.dispose();
+
+const envelopeMesh=new THREE.Mesh(new THREE.CylinderGeometry(.2,.2,1,128,32,true));envelopeMesh.position.y=.5;
+const envelope=fittingVolume(envelopeMesh,new THREE.Vector3(),new THREE.Vector3(0,1,0));
+assert.ok(!volumeContains(envelope,new THREE.Vector3(.2,.5,0),-.003),'surface contact is cut');
+assert.ok(!volumeContains(envelope,new THREE.Vector3(.201,.5,0),-.003),'protrusion is cut');
+assert.ok(volumeContains(envelope,new THREE.Vector3(.195,.5,0),-.003),'fabric more than 3mm inside is retained');
+for(const y of [-.01,.001,.999,1.01])assert.ok(!volumeContains(envelope,new THREE.Vector3(.1,y,0),-.003),'closed ends include inward clearance');
+envelope.texture.dispose();
+
+// A sloped hem must not extend the containment envelope down to its lowest tip.
+const sloped=new THREE.Mesh(new THREE.CylinderGeometry(.2,.2,1,128,64,true));
+const position=sloped.geometry.getAttribute('position');
+for(let i=0;i<position.count;i++)position.setY(i,position.getY(i)+.5+.15*(position.getX(i)/.2+1));
+const localHem=fittingVolume(sloped,new THREE.Vector3(),new THREE.Vector3(0,1.3,0),()=>true,true);
+assert.ok(!volumeContains(localHem,new THREE.Vector3(.15,.1,0),-.003),'higher hem cannot retain inner fabric below it');
+assert.ok(volumeContains(localHem,new THREE.Vector3(.15,.5,0),-.003),'local hem trimming retains the interior');
+localHem.texture.dispose();
+const grouped=volumeShader([envelope,envelope,envelope],'regional',-.003).inside('p',.26);
+assert.match(grouped,/abs\(p.x\)/,'sleeve containment cannot retain torso fabric at the waist');
