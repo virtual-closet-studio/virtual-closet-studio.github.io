@@ -78,3 +78,11 @@ assert.ok(volumeContains(localHem,new THREE.Vector3(.15,.5,0),-.003),'local hem 
 localHem.texture.dispose();
 const grouped=volumeShader([envelope,envelope,envelope],'regional',-.003).inside('p',.26);
 assert.match(grouped,/abs\(p.x\)/,'sleeve containment cannot retain torso fabric at the waist');
+
+const {volumeFrontOpening}=await import('../.cache/visibility-test.mjs');
+assert.ok(volumeFrontOpening(openVolume,new THREE.Vector3(0,.5,.3),1),'front bulge remains even outside the invisible envelope');
+assert.ok(!volumeFrontOpening(openVolume,new THREE.Vector3(0,.5,-.3),1),'back is never an opening exemption');
+for(const y of [-.01,.001,.99,1.1])assert.ok(!volumeFrontOpening(openVolume,new THREE.Vector3(0,y,.3),1),'hem and collar do not become front openings');
+assert.ok(!volumeFrontOpening(wideVolume,new THREE.Vector3(0,.5,.35),1),'closed front still clips');
+const separate=volumeShader([openVolume,wideVolume],'legs',-.003).outermost('p',.12,100);
+assert.match(separate,/legs0Covered\(p,[^)]*\) && !legs0Contains\(p\)/,'one leg cannot exempt a collision with the other leg');

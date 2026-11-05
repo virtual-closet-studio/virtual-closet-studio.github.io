@@ -115,8 +115,28 @@ export function fittingVolume(root:THREE.Object3D,origin:THREE.Vector3,end:THREE
  return {origin:origin.clone(),axis,u,v,length,radii,coverage,texture};
 }
 export function volumeTexture(radii:Float32Array,coverage:Float32Array):THREE.DataTexture {
- const data=new Float32Array(radii.length*2);for(let i=0;i<radii.length;i++){data[i*2]=radii[i];data[i*2+1]=coverage[i];}
- const texture=new THREE.DataTexture(data,angles,rows,THREE.RGFormat,THREE.FloatType);texture.wrapS=THREE.RepeatWrapping;texture.minFilter=texture.magFilter=THREE.NearestFilter;texture.needsUpdate=true;return texture;
+ const data=new Float32Array(radii.length*4);
+ for(let row=0;row<rows;row++){
+  const [left,right]=frontGap(coverage,row);
+  for(let col=0;col<angles;col++){const i=row*angles+col;data[i*4]=radii[i];data[i*4+1]=coverage[i];data[i*4+2]=left/angles;data[i*4+3]=right/angles;}
+ }
+ const texture=new THREE.DataTexture(data,angles,rows,THREE.RGBAFormat,THREE.FloatType);texture.wrapS=THREE.RepeatWrapping;texture.minFilter=texture.magFilter=THREE.NearestFilter;texture.needsUpdate=true;return texture;
+}
+// Torso axes use +X and -Z, so the front is angular column 96. Only the
+// contiguous central opening bounded by cloth on both sides is eligible.
+function frontGap(coverage:Float32Array,row:number):[number,number]{
+ const base=row*angles;if(coverage[base+96])return [1,0];
+ let left=96,right=96;
+ while(left>64&&!coverage[base+left-1])left--;
+ while(right<127&&!coverage[base+right+1])right++;
+ return left<=64||right>=127?[1,0]:[left,right];
+}
+export function volumeFrontOpening(volume:Volume,p:THREE.Vector3,width:number):boolean{
+ const d=p.clone().sub(volume.origin),t=d.dot(volume.axis);
+ if(d.z<=0||Math.abs(p.x)>=.17*width||t<=.01*width||t>=volume.length-.015*width)return false;
+ const row=Math.floor(t/volume.length*(rows-1)),[left,right]=frontGap(volume.coverage,row);
+ let angle=Math.atan2(d.dot(volume.v),d.dot(volume.u))/(Math.PI*2);if(angle<0)angle++;
+ return angle>=left/angles&&angle<=right/angles;
 }
 export function volumeContains(volume:Volume,p:THREE.Vector3,tolerance=0):boolean{
  const d=p.clone().sub(volume.origin),t=d.dot(volume.axis);if(t<Math.max(0,-tolerance)||t>volume.length-Math.max(0,-tolerance))return false;
@@ -155,12 +175,20 @@ vec4 ${name}Sample(vec3 p){
 vec3 ${name}Surface(vec3 p){vec3 origin=${vec(volume.origin)};vec3 axis=${vec(volume.axis)};vec3 d=p-origin;float t=dot(d,axis);vec3 radial=d-axis*t;return origin+axis*t+normalize(radial)*${name}Sample(p).x;}
 bool ${name}Contains(vec3 p){vec4 s=${name}Sample(p);return s.z>=${f(Math.max(0,-tolerance))}&&s.z<=${f(volume.length-Math.max(0,-tolerance))}&&s.w<s.x+${f(tolerance)};}
 bool ${name}Covered(vec3 p,float reach){vec4 s=${name}Sample(p);return s.z>=0.0&&s.z<=${f(volume.length)}&&s.y>.01&&s.w<=s.x+reach;}
+bool ${name}FrontGap(vec3 p){vec3 d=p-${vec(volume.origin)};float t=dot(d,${vec(volume.axis)});float row=clamp(t/${f(volume.length)},0.0,1.0)*127.0;vec2 uv=vec2(0.5/128.0,(floor(row)+0.5)/128.0);vec2 limits=mix(texture2D(${name},uv).ba,texture2D(${name},uv+vec2(0.0,0.0078125)).ba,fract(row));float a=fract(atan(dot(d,${vec(volume.v)}),dot(d,${vec(volume.u)}))/6.28318530718);return a>=limits.x&&a<=limits.y;}
 `);
  });
  const inside=(p:string,torsoWidth=0)=>volumes.map((_,i)=>(i&&torsoWidth?'(abs('+p+'.x)>'+f(torsoWidth)+' && '+prefix+i+'Contains('+p+'))':prefix+i+'Contains('+p+')')).join(' || ')||'false';
  const covered=(p:string,reach:number)=>volumes.map((_,i)=>prefix+i+'Covered('+p+','+f(reach)+')').join(' || ')||'false';
  const outermost=(p:string,reach:number,torsoWidth:number)=>volumes.map((_,i)=>'('+ (i===0?'abs('+p+'.x)<'+f(torsoWidth)+' && ':'')+prefix+i+'Covered('+p+','+f(reach)+') && !'+prefix+i+'Contains('+p+'))').join(' || ')||'false';
- return {surface:(p:string,i=0)=>prefix+i+'Surface('+p+')',outermost,uniforms,declarations:functions.join('\n'),inside,covered,below:(p:string,depth:number)=>volumes.map((_,i)=>`(${prefix}${i}Sample(${p}).z<0.0 && ${prefix}${i}Sample(${p}).z>=-${f(depth)} && ${prefix}${i}Sample(${p}).w<=${prefix}${i}Sample(${p}).x)`).join(' || ')||'false',outside:(p:string,reach:number)=>'('+covered(p,reach)+') && !('+inside(p)+')'};
+ // Only the front-facing gap of the torso can exempt inner clothing. Open
+ // collars, cuffs and missing side samples must not become front openings.
+ const frontOpening=(p:string,width:number)=>{
+  if(!volumes.length)return 'false';
+  const volume=volumes[0],sample=prefix+'0Sample('+p+')';
+  return `(${p}.z>${f(volume.origin.z)} && abs(${p}.x)<${f(.17*width)} && ${sample}.z>${f(.01*width)} && ${sample}.z<${f(volume.length-.015*width)} && ${prefix}0FrontGap(${p}) && ${sample}.y<0.01)`;
+ };
+ return {frontOpening,surface:(p:string,i=0)=>prefix+i+'Surface('+p+')',outermost,uniforms,declarations:functions.join('\n'),inside,covered,below:(p:string,depth:number)=>volumes.map((_,i)=>`(${prefix}${i}Sample(${p}).z<0.0 && ${prefix}${i}Sample(${p}).z>=-${f(depth)} && ${prefix}${i}Sample(${p}).w<=${prefix}${i}Sample(${p}).x)`).join(' || ')||'false',outside:(p:string,reach:number)=>'('+covered(p,reach)+') && !('+inside(p)+')'};
 }
 export const BODY_PROTECTION_GLSL='((maskSource.y>=1.65 && abs(maskSource.x)<.17) || (maskSource.y>=1.55 && abs(maskSource.x)<.11) || (abs(maskSource.x)>=.76 && maskSource.y>1.30))';
 export function protectedBody(source:THREE.Vector3):boolean{return source.y>=1.65&&Math.abs(source.x)<.17||source.y>=1.55&&Math.abs(source.x)<.11||Math.abs(source.x)>=.76&&source.y>1.30;}

@@ -1,3 +1,4 @@
+import { sleeveOpening } from './sleeve-opening';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
@@ -56,7 +57,7 @@ function addCylindricalUVs(root: THREE.Object3D): void {
   });
 }
 
-type SleeveFit = { shoulder: THREE.Vector3; cuff: THREE.Vector3; direction: THREE.Vector3; sourceExitX: number; valid: boolean };
+type SleeveFit = { shoulder: THREE.Vector3; cuff: THREE.Vector3; direction: THREE.Vector3; sourceExitX: number; cuffNormal?: THREE.Vector3; exit?: THREE.Vector3; valid: boolean };
 type SleeveFits = { left: SleeveFit; right: SleeveFit };
 type ArmLandmark = { shoulder: THREE.Vector3; elbow: THREE.Vector3; wrist: THREE.Vector3 };
 type ArmLandmarks = { left: ArmLandmark; right: ArmLandmark };
@@ -180,7 +181,7 @@ function garmentSleeves(root: THREE.Object3D, body: Body, landmarks: ArmLandmark
   root.updateMatrixWorld(true);
   const point = new THREE.Vector3();
   const sides: THREE.Vector3[][] = [[], []];
-  const openings = longSleeve ? [] : garmentOpenings(root);
+  const openings = garmentOpenings(root);
   root.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
     const positions = (object.geometry as THREE.BufferGeometry).getAttribute('position');
@@ -206,7 +207,6 @@ function garmentSleeves(root: THREE.Object3D, body: Body, landmarks: ArmLandmark
         const rim = sleeve.filter((p) => p.y < endY + .018 * body.height);
         const cuff = new THREE.Box3().setFromPoints(rim).getCenter(new THREE.Vector3());
         const direction = cuff.clone().sub(arm.shoulder).normalize();
-        cuff.addScaledVector(direction, .018 * body.height);
         return { shoulder: arm.shoulder, cuff, direction, sourceExitX: Math.abs(arm.wrist.x)/body.width, valid: true };
       }
     }
@@ -256,7 +256,13 @@ function garmentSleeves(root: THREE.Object3D, body: Body, landmarks: ArmLandmark
       shoulder, cuff, direction, sourceExitX, valid: true,
     };
   };
-  return { left: fitFor(sides[0], -1, landmarks.left), right: fitFor(sides[1], 1, landmarks.right) };
+  const refine=(fit:SleeveFit):SleeveFit=>{
+    if(!fit.valid)return fit;
+    const opening=sleeveOpening(root,fit.cuff,fit.direction,body.width);
+    if(opening){fit.cuff.copy(opening.center);fit.cuffNormal=fit.direction.clone();fit.exit=opening.exit;}
+    return fit;
+  };
+  return { left: refine(fitFor(sides[0], -1, landmarks.left)), right: refine(fitFor(sides[1], 1, landmarks.right)) };
 }
 
 function sectionBounds(root: THREE.Object3D, low: number, high: number, maxX: number, side?: number): THREE.Box3 | undefined {
@@ -679,7 +685,7 @@ export class ClosetScene {
         // Include the sleeve cap behind the shoulder joint and the complete
         // cuff. Actual cloth coverage still gates cuts at both open ends.
         const start=sleeve.shoulder.clone().addScaledVector(sleeve.direction,-.06*bodyConfig.width);
-        const end=sleeve.cuff.clone().addScaledVector(sleeve.direction,-.018*bodyConfig.height);
+        const end=sleeve.cuff.clone();
         const volume=await this.volumeWorker.build(root,start,end,{kind:'sleeve',side:i?1:-1,shoulder:sleeve.shoulder.toArray(),direction:sleeve.direction.toArray(),minX:Math.abs(sleeve.shoulder.x)-.075*bodyConfig.width,radius:.18*bodyConfig.width,nearest:root===outerRoot});
         if(volume)result.push(volume);
       }
@@ -690,7 +696,7 @@ export class ClosetScene {
     const innerVolumes=innerRoot?await topVolumes(innerRoot,innerFits,'inner:'+innerItem?.template+':'+(selection.find(item=>item.category==='outer')?.template??'single')):[];
     if(outerRoot&&innerRoot&&outerVolumes.length){
       const mask=volumeShader(outerVolumes,'outerVolume',-.003*bodyConfig.width);
-      applyVisibilityMask(innerRoot,`!(${mask.inside('maskWorld',.26*bodyConfig.width)})`,mask.uniforms,mask.declarations);
+      applyVisibilityMask(innerRoot,`!((${mask.inside('maskWorld',.26*bodyConfig.width)}) || ${mask.frontOpening('maskWorld',bodyConfig.width)})`,mask.uniforms,mask.declarations);
     }
     const legVolumes=bottomRoot?await cachedVolumes('bottom:'+selection.find(item=>item.category==='bottom')?.template,async()=>{
       const bounds=new THREE.Box3().setFromObject(bottomRoot),volumes:Volume[]=[];
@@ -698,10 +704,13 @@ export class ClosetScene {
         const volume=await this.volumeWorker.build(bottomRoot,new THREE.Vector3(0,bounds.min.y,0),new THREE.Vector3(0,bounds.max.y,0),{kind:'torso',width:bounds.max.x+.01});
         return volume?[volume]:[];
       }
+      const hipStart=Math.max(bounds.min.y,.84*bodyConfig.height);
+      const hips=await this.volumeWorker.build(bottomRoot,new THREE.Vector3(0,hipStart,0),new THREE.Vector3(0,bounds.max.y,0),{kind:'torso',width:bounds.max.x+.01,nearest:true});
+      if(hips)volumes.push(hips);
       for(const side of [-1,1]){
         const cuff=sectionBounds(bottomRoot,bounds.min.y,bounds.min.y+.06*bodyConfig.height,.5*bodyConfig.width,side);
         const center=cuff?.getCenter(new THREE.Vector3())??new THREE.Vector3(side*.105*bodyConfig.width,0,0);
-        const volume=await this.volumeWorker.build(bottomRoot,new THREE.Vector3(center.x,cuff?.min.y??bounds.min.y,center.z),new THREE.Vector3(center.x,bounds.max.y,center.z),{kind:'side',side});
+        const volume=await this.volumeWorker.build(bottomRoot,new THREE.Vector3(center.x,cuff?.min.y??bounds.min.y,center.z),new THREE.Vector3(center.x,Math.min(bounds.max.y,.90*bodyConfig.height),center.z),{kind:'side',side,nearest:true});
         if(volume)volumes.push(volume);
       }
       return volumes;
@@ -711,9 +720,9 @@ export class ClosetScene {
     if(bottomRoot){
       // Sleeves beside the hips do not cover trousers. Only the torso/hem
       // surface determines which layer owns the waist overlap.
-      const topMasks=[innerVolumes,outerVolumes].filter(v=>v.length).map((v,i)=>volumeShader(v.slice(0,1),'waistVolume'+i,-.003*bodyConfig.width));
+      const topMasks=[innerVolumes,outerVolumes].filter(v=>v.length).map((v,i)=>volumeShader(v.slice(0,1),'waistVolume'+i,0));
       const envelope=outerVolumes.length?volumeShader(outerVolumes,'waistEnvelope',-.003*bodyConfig.width):undefined;
-      const cuts=topMasks.map((m,i)=>'('+m.outside('maskWorld',.12*bodyConfig.width)+(i===0&&innerVolumes.length&&envelope?' && ('+envelope.inside(m.surface('maskWorld'),.26*bodyConfig.width)+')':'')+')');
+      const cuts=topMasks.map((m,i)=>'('+m.outside('maskWorld',.12*bodyConfig.width)+(i===0&&innerVolumes.length&&envelope?' && (('+envelope.inside(m.surface('maskWorld'),.26*bodyConfig.width)+') || '+envelope.frontOpening(m.surface('maskWorld'),bodyConfig.width)+')':'')+')');
       const declarations=[...topMasks,...(envelope?[envelope]:[])];
       if(cuts.length)applyVisibilityMask(bottomRoot,cuts.join(' || '),Object.assign({},...declarations.map(m=>m.uniforms)),declarations.map(m=>m.declarations).join('\n'));
     }
@@ -741,12 +750,17 @@ export class ClosetScene {
       const mat = new THREE.MeshStandardMaterial({ color: '#d5b4a1', roughness: .92, side: THREE.DoubleSide });
       object.material = mat;
     });
-    const skinMasks=[innerVolumes,outerVolumes,legVolumes,footVolumes].filter(v=>v.length).map((v,i)=>volumeShader(v,'skinLayer'+i,v===outerVolumes?-.003*bodyConfig.width:0));
+    const skinMasks=[innerVolumes,outerVolumes,legVolumes,footVolumes].filter(v=>v.length).map((v,i)=>volumeShader(v,'skinLayer'+i,-.003*bodyConfig.width));
     if(skinMasks.length){
-      const cuts=skinMasks.map(m=>'('+m.outside('maskWorld',.12*bodyConfig.width)+')');
+      const cuts=skinMasks.map(m=>'('+m.outermost('maskWorld',.12*bodyConfig.width,100)+')');
       if(footVolumes.length){const soles=skinMasks[skinMasks.length-1];cuts.push('('+soles.below('maskWorld',.08*bodyConfig.height)+')');}
       const cutCondition=cuts.join(' || ');
-      applyVisibilityMask(body,'!'+BODY_PROTECTION_GLSL+' && ('+cutCondition+')',Object.assign({},...skinMasks.map(m=>m.uniforms)),skinMasks.map(m=>m.declarations).join('\n'),true);
+      const cuffProtection=sleeves?[sleeves.left,sleeves.right].filter(s=>s.valid).map(s=>{
+        const v=(p:THREE.Vector3)=>`vec3(${p.x.toFixed(7)},${p.y.toFixed(7)},${p.z.toFixed(7)})`;
+        return `(abs(maskSource.x)>.29 && maskWorld.x*${Math.sign(s.shoulder.x).toFixed(1)}>0.0 && dot(maskWorld-${v(s.exit??s.cuff)},${v(s.cuffNormal??s.direction)})>0.0)`;
+      }).join(' || '):'false';
+      const bodyProtection=sleeves?'((maskSource.y>=1.65 && abs(maskSource.x)<.17) || (maskSource.y>=1.55 && abs(maskSource.x)<.11))':BODY_PROTECTION_GLSL;
+      applyVisibilityMask(body,'!('+bodyProtection+' || '+(cuffProtection||'false')+') && ('+cutCondition+')',Object.assign({},...skinMasks.map(m=>m.uniforms)),skinMasks.map(m=>m.declarations).join('\n'),true);
     }
     mannequin.add(body);
     if(this.disposed||revision!==this.revision)return;
